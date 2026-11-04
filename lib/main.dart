@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:tante/home.dart';
-import 'package:tante/loadingPage.dart';
 import 'package:tante/login.dart';
 
 void main() {
@@ -12,72 +11,58 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const navy = Color(0xFF0F172A);
+    const teal = Color(0xFF0F766E);
+
     return MaterialApp(
       title: 'Tante',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-
-        colorScheme: ColorScheme(
-          brightness: Brightness.light,
-
-          // Primary = Deep Navy
-          primary: const Color(0xFF0F172A),
-          onPrimary: Colors.white,
-
-          // Secondary = Teal
-          secondary: const Color(0xFF0F766E),
-          onSecondary: Colors.white,
-
-          // Surface / cards
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: teal,
+          primary: teal,
+          secondary: const Color(0xFFD4A017),
           surface: Colors.white,
-          onSurface: const Color(0xFF0F172A),
-
-          // Error
-          error: Colors.red,
-          onError: Colors.white,
-
-          // Background style
-          tertiary: const Color(0xFFD4A017), // Gold Accent
-          onTertiary: Colors.white,
         ),
-
         scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
-          foregroundColor: Color(0xFF0F172A),
-          centerTitle: true,
+          foregroundColor: navy,
+          centerTitle: false,
           elevation: 0,
         ),
-
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF0F766E),
-            foregroundColor: Colors.white,
             minimumSize: const Size(double.infinity, 52),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(14),
             ),
           ),
         ),
-
-        textTheme: const TextTheme(
-          headlineMedium: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF0F172A),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
           ),
-          bodyLarge: TextStyle(
-            color: Color(0xFF0F172A),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: teal, width: 1.5),
           ),
         ),
       ),
+      initialRoute: '/',
       routes: {
-        '/': (context) => LoadingPage(),
-        '/home': (context) => HomePage(),
-        '/login': (context) => Login()
+        '/': (context) => const Login(),
+        '/home': (context) => const HomePage(),
+        '/login': (context) => const Login(),
       },
     );
   }
 }
-  
