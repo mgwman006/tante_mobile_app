@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tante/services/tante_api.dart';
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -9,21 +10,38 @@ class Login extends StatefulWidget {
 
 class _LoginState extends State<Login> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _api = TanteApi();
   String _role = 'Landlord';
   bool _obscurePassword = true;
+  bool _isLoading = false;
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _phoneController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _login() {
-    if (!_formKey.currentState!.validate()) return;
-    Navigator.pushReplacementNamed(context, '/home', arguments: _role);
+  Future<void> _login() async {
+    if (_isLoading || !_formKey.currentState!.validate()) return;
+    setState(() => _isLoading = true);
+    try {
+      final session = await _api.signIn(
+        phoneNumber: _phoneController.text,
+        password: _passwordController.text,
+        role: _role,
+      );
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/home', arguments: session);
+    } on TanteApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -44,62 +62,45 @@ class _LoginState extends State<Login> {
                       height: 58,
                       width: 58,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFCCFBF1),
+                        color: const Color(0xFF173F58),
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      child: const Icon(Icons.home_work_rounded,
-                          color: Color(0xFF0F766E), size: 30),
+                      child: const Icon(Icons.home_work_rounded, color: Color(0xFF83EC7F), size: 30),
                     ),
                     const SizedBox(height: 28),
                     const Text('Welcome to Tante',
-                        style: TextStyle(
-                            fontSize: 30,
-                            height: 1.15,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A))),
+                        style: TextStyle(fontSize: 30, height: 1.15, fontWeight: FontWeight.w800, color: Color(0xFF102F4C))),
                     const SizedBox(height: 8),
                     const Text('Find, rent, and manage — all in one place.',
-                        style: TextStyle(
-                            fontSize: 15, color: Color(0xFF64748B))),
+                        style: TextStyle(fontSize: 15, color: Color(0xFF3E5674))),
                     const SizedBox(height: 32),
-                    const Text('I am signing in as',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF334155))),
+                    const Text('I am signing in as', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF102F4C))),
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
                       segments: const [
-                        ButtonSegment(
-                          value: 'Landlord',
-                          label: Text('Landlord'),
-                          icon: Icon(Icons.apartment_rounded),
-                        ),
-                        ButtonSegment(
-                          value: 'Tenant',
-                          label: Text('Tenant'),
-                          icon: Icon(Icons.key_rounded),
-                        ),
+                        ButtonSegment(value: 'Landlord', label: Text('Landlord'), icon: Icon(Icons.apartment_rounded)),
+                        ButtonSegment(value: 'Tenant', label: Text('Tenant'), icon: Icon(Icons.key_rounded)),
                       ],
                       selected: {_role},
-                      onSelectionChanged: (selection) {
-                        setState(() => _role = selection.first);
-                      },
+                      onSelectionChanged: _isLoading ? null : (selection) => setState(() => _role = selection.first),
                       showSelectedIcon: false,
                     ),
                     const SizedBox(height: 24),
                     TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'Email address',
-                        prefixIcon: Icon(Icons.mail_outline_rounded),
+                        labelText: 'Tanzanian phone number',
+                        hintText: '+255 712 345 678',
+                        prefixIcon: Icon(Icons.phone_outlined),
                       ),
                       validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Enter your email address';
+                        final phone = value?.replaceAll(RegExp(r'[\s-]'), '') ?? '';
+                        if (phone.isEmpty) return 'Enter your phone number';
+                        if (!RegExp(r'^(\+255|255|0)[678]\d{8}$').hasMatch(phone)) {
+                          return 'Enter a valid Tanzanian mobile number';
                         }
-                        if (!value.contains('@')) return 'Enter a valid email';
                         return null;
                       },
                     ),
@@ -114,45 +115,37 @@ class _LoginState extends State<Login> {
                         prefixIcon: const Icon(Icons.lock_outline_rounded),
                         suffixIcon: IconButton(
                           tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                          onPressed: () => setState(
-                              () => _obscurePassword = !_obscurePassword),
-                          icon: Icon(_obscurePassword
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined),
+                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                          icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
                         ),
                       ),
-                      validator: (value) => value == null || value.isEmpty
-                          ? 'Enter your password'
-                          : null,
+                      validator: (value) => value == null || value.length < 4 ? 'Enter a password (at least 4 characters)' : null,
                     ),
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
-                        onPressed: () => _showMessage(
-                            'Password reset is available from your account provider.'),
+                        onPressed: () => _showMessage('Contact Tante support to reset your password.'),
                         child: const Text('Forgot password?'),
                       ),
                     ),
                     const SizedBox(height: 8),
                     FilledButton(
-                      onPressed: _login,
-                      child: Text('Log in as $_role'),
+                      onPressed: _isLoading ? null : _login,
+                      child: _isLoading
+                          ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Text('Log in as $_role'),
                     ),
                     const SizedBox(height: 20),
                     Center(
                       child: TextButton(
-                        onPressed: () => _showMessage(
-                            'Contact your property manager for an invitation to Tante.'),
+                        onPressed: () => _showMessage('Contact your property manager for an invitation to Tante.'),
                         child: const Text('New to Tante? Get an invitation'),
                       ),
                     ),
                     const SizedBox(height: 12),
                     const Center(
-                      child: Text(
-                        'Your role determines which property tools you see.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                      ),
+                      child: Text('Your role determines which property tools you see.', textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12, color: Color(0xFF3E5674))),
                     ),
                   ],
                 ),
