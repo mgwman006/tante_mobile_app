@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../services/tante_api.dart';
+import 'create_lease_page.dart';
 import 'lease_details_page.dart';
 import '../widgets/landlord_dashboard_widgets.dart';
 
@@ -21,6 +22,7 @@ class LandlordLeasesPage extends StatefulWidget {
     this.token,
     this.rentalProfileId,
     this.payerUserId,
+    this.onLeaseCreated,
   });
 
   final List<Map<String, dynamic>> leases;
@@ -28,6 +30,7 @@ class LandlordLeasesPage extends StatefulWidget {
   final String? token;
   final int? rentalProfileId;
   final int? payerUserId;
+  final ValueChanged<Map<String, dynamic>>? onLeaseCreated;
 
   @override
   State<LandlordLeasesPage> createState() => _LandlordLeasesPageState();
@@ -35,6 +38,23 @@ class LandlordLeasesPage extends StatefulWidget {
 
 class _LandlordLeasesPageState extends State<LandlordLeasesPage> {
   String _selectedStatus = 'ALL';
+
+  Future<void> _createLease() async {
+    final api = widget.api;
+    final token = widget.token;
+    final rentalProfileId = widget.rentalProfileId;
+    if (api == null || token == null || rentalProfileId == null) return;
+    final lease = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (context) => CreateLeasePage(
+          api: api,
+          rentalProfileId: rentalProfileId,
+          token: token,
+        ),
+      ),
+    );
+    if (lease != null && mounted) widget.onLeaseCreated?.call(lease);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +81,20 @@ class _LandlordLeasesPageState extends State<LandlordLeasesPage> {
         ),
         const SizedBox(height: 12),
         const Text('Agreements managed through Rent Manager.'),
+        if (widget.api != null &&
+            widget.token != null &&
+            widget.rentalProfileId != null) ...[
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              key: const ValueKey('create-lease-button'),
+              onPressed: _createLease,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Create lease'),
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           key: const ValueKey('lease-status-filter'),

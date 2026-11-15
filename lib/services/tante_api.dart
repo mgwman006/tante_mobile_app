@@ -846,6 +846,72 @@ class TanteApi {
     return _maps(result);
   }
 
+  Future<Map<String, dynamic>> createLandlordLease({
+    required int rentalProfileId,
+    required String tenantFirstName,
+    required String tenantLastName,
+    required String tenantPhoneNumber,
+    required String startDate,
+    required String endDate,
+    required double rentAmount,
+    required String rentFrequency,
+    required bool fullLeasePaymentRequired,
+    required String token,
+    int? unitId,
+    String leaseTerms = '',
+  }) async {
+    if (rentalProfileId <= 0 ||
+        tenantFirstName.trim().isEmpty ||
+        tenantLastName.trim().isEmpty ||
+        tenantPhoneNumber.trim().isEmpty ||
+        rentAmount < 0 ||
+        !rentAmount.isFinite) {
+      throw const TanteApiException('Enter all required lease details.');
+    }
+    final start = DateTime.tryParse(startDate);
+    final end = DateTime.tryParse(endDate);
+    if (start == null || end == null || !start.isBefore(end)) {
+      throw const TanteApiException(
+        'The lease end date must be after the start date.',
+      );
+    }
+    const frequencies = {'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'};
+    if (!frequencies.contains(rentFrequency)) {
+      throw const TanteApiException('Select a valid rent frequency.');
+    }
+
+    final result = await _request(
+      'POST',
+      '$rentApiBaseUrl/v1/leases/landlord',
+      token: token,
+      body: {
+        'rentalProfileId': rentalProfileId,
+        'unitId': ?unitId,
+        'tenantFirstName': tenantFirstName.trim(),
+        'tenantLastName': tenantLastName.trim(),
+        'tenantPhoneNumber': tenantPhoneNumber.trim(),
+        'startDate': startDate,
+        'endDate': endDate,
+        'rent': {
+          'id': 0,
+          'amount': rentAmount,
+          'currency': 'TZS',
+          'frequency': rentFrequency,
+        },
+        'leaseTerms': leaseTerms,
+        'fullLeasePaymentRequired': fullLeasePaymentRequired,
+      },
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The rent service returned an invalid created lease.',
+      );
+    }
+    final lease = Map<String, dynamic>.from(result);
+    _validateLeaseDetails(lease);
+    return lease;
+  }
+
   Future<Map<String, dynamic>> getLeaseDetails(
     int leaseId,
     String token,

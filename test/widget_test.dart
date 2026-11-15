@@ -364,6 +364,134 @@ void main() {
     expect(find.text('Dates'), findsOneWidget);
   });
 
+  testWidgets('landlord can create a lease from the leases page', (
+    tester,
+  ) async {
+    final requests = <http.Request>[];
+    final api = TanteApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path ==
+            '/property-manager/v1/properties/rental-profile/7') {
+          return http.Response(jsonEncode({'success': true, 'data': []}), 200);
+        }
+        if (request.url.path == '/rent-manager/v1/leases/landlord') {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'id': 27,
+                'referenceNumber': 'LS-YR2026-000027',
+                'status': 'PENDING_TENANT_APPROVAL',
+                'startDate': '2026-12-01',
+                'endDate': '2027-11-30',
+                'rent': {
+                  'amount': 850000,
+                  'currency': 'TZS',
+                  'frequency': 'MONTHLY',
+                },
+                'fullLeasePaymentRequired': false,
+                'tenant': null,
+                'invitations': [],
+              },
+            }),
+            201,
+          );
+        }
+        return http.Response('Unexpected request: ${request.url.path}', 500);
+      }),
+    );
+    Map<String, dynamic>? createdLease;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LandlordLeasesPage(
+            leases: const [],
+            api: api,
+            token: 'test-token',
+            rentalProfileId: 7,
+            onLeaseCreated: (lease) => createdLease = lease,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('create-lease-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('lease-tenant-first-name')),
+      'Jordan',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('lease-tenant-last-name')),
+      'Smith',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('lease-tenant-phone')),
+      '+255712345678',
+    );
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No available units to select.'), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('lease-rent-amount')),
+      '850000',
+    );
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    final startDate = DateUtils.dateOnly(DateTime.now());
+    final endDate = startDate.add(const Duration(days: 1));
+    await tester.tap(find.byKey(const ValueKey('lease-start-date-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lease-end-date-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create lease'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Lease reference: LS-YR2026-000027'), findsOneWidget);
+    await tester.tap(find.text('Go to list'));
+    await tester.pumpAndSettle();
+
+    expect(createdLease?['id'], 27);
+    final createRequest = requests.singleWhere(
+      (request) => request.url.path == '/rent-manager/v1/leases/landlord',
+    );
+    expect(createRequest.method, 'POST');
+    expect(
+      createRequest.headers['Authorization']?.startsWith('Bearer '),
+      isTrue,
+    );
+    expect(jsonDecode(createRequest.body), {
+      'rentalProfileId': 7,
+      'tenantFirstName': 'Jordan',
+      'tenantLastName': 'Smith',
+      'tenantPhoneNumber': '+255712345678',
+      'startDate':
+          '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}',
+      'endDate':
+          '${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}',
+      'rent': {
+        'id': 0,
+        'amount': 850000,
+        'currency': 'TZS',
+        'frequency': 'MONTHLY',
+      },
+      'leaseTerms': '',
+      'fullLeasePaymentRequired': false,
+    });
+  });
+
   testWidgets('pending lease dates can be edited and saved', (tester) async {
     final api = _FakeTanteApi()..leaseStatus = 'PENDING';
     await tester.pumpWidget(

@@ -226,6 +226,9 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
         token: widget.session.token,
         rentalProfileId: selectedRentalProfileId,
         payerUserId: widget.session.userId,
+        onLeaseCreated: (lease) {
+          if (mounted) setState(() => _leases = [..._leases, lease]);
+        },
       ),
       LandlordViewingsPage(
         api: _api,
