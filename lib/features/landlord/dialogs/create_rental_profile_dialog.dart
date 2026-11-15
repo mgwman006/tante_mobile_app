@@ -25,6 +25,7 @@ class _CreateRentalProfileDialogState extends State<CreateRentalProfileDialog> {
   late final _emailController = TextEditingController(
     text: widget.session.email ?? '',
   );
+  final _viewingServiceFeeController = TextEditingController(text: '0');
   String _type = 'INDIVIDUAL';
   int? _organizationId;
   bool _saving = false;
@@ -43,6 +44,7 @@ class _CreateRentalProfileDialogState extends State<CreateRentalProfileDialog> {
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
+    _viewingServiceFeeController.dispose();
     super.dispose();
   }
 
@@ -56,6 +58,9 @@ class _CreateRentalProfileDialogState extends State<CreateRentalProfileDialog> {
         phoneNumber: _phoneController.text,
         email: _emailController.text,
         type: _type,
+        viewingServiceFee: double.parse(
+          _viewingServiceFeeController.text.trim(),
+        ),
         organizationId: _type == 'BUSINESS' ? _organizationId : null,
       );
       if (mounted) Navigator.pop(context, profile);
@@ -123,6 +128,27 @@ class _CreateRentalProfileDialogState extends State<CreateRentalProfileDialog> {
                       !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
                     return 'Enter a valid email address';
                   }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _viewingServiceFeeController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Viewing service fee (TZS)',
+                  prefixIcon: Icon(Icons.payments_outlined),
+                  helperText:
+                      'Fee charged to tenants when they book a viewing.',
+                ),
+                validator: (value) {
+                  final fee = double.tryParse(value?.trim() ?? '');
+                  if (fee == null || !fee.isFinite) {
+                    return 'Enter a valid viewing service fee.';
+                  }
+                  if (fee < 0) return 'Fee cannot be negative.';
                   return null;
                 },
               ),

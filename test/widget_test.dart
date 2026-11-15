@@ -11,10 +11,13 @@ import 'package:tante/features/landlord/pages/landlord_leases_page.dart';
 import 'package:tante/features/landlord/pages/landlord_viewings_page.dart';
 import 'package:tante/features/landlord/pages/lease_details_page.dart';
 import 'package:tante/features/landlord/pages/property_details_page.dart';
+import 'package:tante/features/landlord/dialogs/create_rental_profile_dialog.dart';
+import 'package:tante/features/auth/complete_user_profile_page.dart';
 import 'package:tante/features/landlord/widgets/lease_terms_editor.dart';
 import 'package:tante/features/landlord/landlord_home.dart';
 import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/main.dart';
+import 'package:tante/login.dart';
 import 'package:tante/services/tante_api.dart';
 
 void main() {
@@ -1182,6 +1185,69 @@ void main() {
     expect(requestUri.path, '/rent-manager/v1/rentalprofiles/7');
     expect(authorization, startsWith('Bearer '));
     expect(profile['name'], 'Tante Rentals');
+    expect(profile['viewingServiceFee'], 15000);
+  });
+
+  testWidgets('rental profile creation submits the viewing service fee', (
+    tester,
+  ) async {
+    late http.Request request;
+    final api = TanteApi(
+      client: MockClient((incoming) async {
+        request = incoming;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'id': 7,
+              'name': 'Tante Rentals',
+              'viewingServiceFee': 25000,
+            },
+          }),
+          201,
+        );
+      }),
+    );
+    const session = AuthSession(
+      phoneNumber: '+255712345678',
+      token: 'test-token',
+      userId: 42,
+      role: 'Landlord',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showDialog<Map<String, dynamic>>(
+                context: context,
+                builder: (_) =>
+                    CreateRentalProfileDialog(api: api, session: session),
+              ),
+              child: const Text('Open profile form'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open profile form'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(0), 'Tante Rentals');
+    await tester.enterText(find.byType(TextFormField).at(3), '25000');
+    await tester.tap(find.text('Create profile'));
+    await tester.pumpAndSettle();
+
+    expect(request.method, 'POST');
+    expect(request.url.path, '/rent-manager/v1/rentalprofiles');
+    expect(request.headers['Authorization']?.startsWith('Bearer '), isTrue);
+    expect(jsonDecode(request.body), {
+      'name': 'Tante Rentals',
+      'phoneNumber': '+255712345678',
+      'email': null,
+      'type': 'INDIVIDUAL',
+      'viewingServiceFee': 25000,
+      'userId': 42,
+    });
   });
 
   test('viewing booking API posts the authenticated booking payload', () async {
@@ -1728,6 +1794,159 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome home, Jordan'), findsOneWidget);
+  });
+
+  testWidgets('successful sign-in creates a missing user profile', (
+    tester,
+  ) async {
+    final requests = <http.Request>[];
+    final api = TanteApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path == '/auth-manager/v1/auth') {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'jwtToken': 'account-token'},
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/auth-manager/v1/users/0712345678') {
+          return http.Response(
+            jsonEncode({'success': false, 'message': 'User not found'}),
+            404,
+          );
+        }
+        if (request.url.path == '/auth-manager/v1/users') {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'id': 58,
+                'firstName': 'Jordan',
+                'lastName': 'Smith',
+                'phoneNumber': '0712345678',
+                'memberships': [],
+              },
+            }),
+            201,
+          );
+        }
+        return http.Response('Unexpected request: ${request.url.path}', 500);
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Login(api: api),
+        onGenerateRoute: (settings) {
+          if (settings.name != '/complete-user-profile') return null;
+          final args = settings.arguments! as CompleteUserProfileRouteArgs;
+          return MaterialPageRoute<AuthSession>(
+            builder: (_) => CompleteUserProfilePage(
+              api: api,
+              phoneNumber: args.phoneNumber,
+              token: args.token,
+              role: args.role,
+            ),
+          );
+        },
+        routes: {
+          '/home': (context) {
+            final session =
+                ModalRoute.of(context)!.settings.arguments! as AuthSession;
+            return Scaffold(body: Text('Signed in user ${session.userId}'));
+          },
+        },
+      ),
+    );
+
+    await tester.enterText(
+      find.bySemanticsLabel('Tanzanian phone number'),
+      '0712345678',
+    );
+    await tester.enterText(find.bySemanticsLabel('Password'), 'password');
+    await tester.ensureVisible(find.text('Log in as Landlord'));
+    await tester.tap(find.text('Log in as Landlord'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('How can we address you?'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField).first, 'Jordan');
+    await tester.enterText(find.byType(TextFormField).last, 'Smith');
+    await tester.tap(find.text('Save and continue'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Signed in user 58'), findsOneWidget);
+    expect(requests, hasLength(3));
+    expect(requests.first.headers['Authorization'], isNull);
+    expect(requests[1].headers['Authorization']?.startsWith('Bearer '), isTrue);
+    expect(requests[2].method, 'POST');
+    expect(requests[2].url.path, '/auth-manager/v1/users');
+    expect(requests[2].headers['Authorization']?.startsWith('Bearer '), isTrue);
+    expect(jsonDecode(requests[2].body), {
+      'firstName': 'Jordan',
+      'lastName': 'Smith',
+      'phoneNumber': '0712345678',
+    });
+  });
+
+  testWidgets('unregistered user can create an account from sign-in', (
+    tester,
+  ) async {
+    late http.Request request;
+    final api = TanteApi(
+      client: MockClient((incoming) async {
+        request = incoming;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'phoneNumber': '0712345678'},
+          }),
+          201,
+        );
+      }),
+    );
+    await tester.pumpWidget(MyApp(api: api));
+
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.bySemanticsLabel('Tanzanian phone number'),
+      '0712345678',
+    );
+    await tester.ensureVisible(find.text('New to Tante? Create an account'));
+    await tester.tap(find.text('New to Tante? Create an account'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Join Tante'), findsOneWidget);
+    await tester.enterText(find.byType(TextFormField).at(1), 'password');
+    await tester.enterText(find.byType(TextFormField).at(2), 'password');
+    final createAccountButton = find.widgetWithText(
+      FilledButton,
+      'Create account',
+    );
+    await tester.ensureVisible(createAccountButton);
+    await tester.tap(createAccountButton);
+    await tester.pumpAndSettle();
+
+    expect(request.url.path, '/auth-manager/v1/auth/account');
+    expect(request.headers['Authorization'], isNull);
+    expect(jsonDecode(request.body), {
+      'phoneNumber': '0712345678',
+      'passWord': 'password',
+    });
+    expect(find.text('Log in as Tenant'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextFormField>(find.byType(TextFormField).first)
+          .controller
+          ?.text,
+      '0712345678',
+    );
+    expect(
+      find.text('Account created. Sign in with your new account.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('landlord and agent sign-in opens the landlord login form', (

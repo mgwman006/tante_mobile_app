@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:tante/features/auth/complete_user_profile_page.dart';
+import 'package:tante/features/auth/create_account_page.dart';
 import 'package:tante/services/tante_api.dart';
 
 class LoginRouteArgs {
@@ -59,12 +61,19 @@ class _LoginState extends State<Login> {
         password: _passwordController.text,
         role: _role,
       );
+      _completeLogin(session);
+    } on TanteUserProfileMissingException catch (error) {
       if (!mounted) return;
-      if (widget.returnToPreviousRoute) {
-        Navigator.pop(context, session);
-      } else {
-        Navigator.pushReplacementNamed(context, '/home', arguments: session);
-      }
+      final session = await Navigator.pushNamed<AuthSession>(
+        context,
+        '/complete-user-profile',
+        arguments: CompleteUserProfileRouteArgs(
+          phoneNumber: error.phoneNumber,
+          token: error.token,
+          role: error.role,
+        ),
+      );
+      if (session != null) _completeLogin(session);
     } on TanteApiException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -74,6 +83,32 @@ class _LoginState extends State<Login> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _completeLogin(AuthSession session) {
+    if (!mounted) return;
+    if (widget.returnToPreviousRoute) {
+      Navigator.pop(context, session);
+    } else {
+      Navigator.pushReplacementNamed(context, '/home', arguments: session);
+    }
+  }
+
+  Future<void> _openRegistration() async {
+    final phoneNumber = await Navigator.pushNamed<String>(
+      context,
+      '/register',
+      arguments: CreateAccountRouteArgs(
+        initialPhoneNumber: _phoneController.text.trim(),
+      ),
+    );
+    if (!mounted || phoneNumber == null) return;
+    setState(() => _phoneController.text = phoneNumber);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Account created. Sign in with your new account.'),
+      ),
+    );
   }
 
   @override
@@ -231,10 +266,8 @@ class _LoginState extends State<Login> {
                     const SizedBox(height: 20),
                     Center(
                       child: TextButton(
-                        onPressed: () => _showMessage(
-                          'Contact your property manager for an invitation to Tante.',
-                        ),
-                        child: const Text('New to Tante? Get an invitation'),
+                        onPressed: _isLoading ? null : _openRegistration,
+                        child: const Text('New to Tante? Create an account'),
                       ),
                     ),
                     const SizedBox(height: 12),

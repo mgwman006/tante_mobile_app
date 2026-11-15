@@ -16,11 +16,24 @@ const propertyApiBaseUrl = String.fromEnvironment(
 );
 
 class TanteApiException implements Exception {
-  const TanteApiException(this.message);
+  const TanteApiException(this.message, {this.statusCode});
   final String message;
+  final int? statusCode;
 
   @override
   String toString() => message;
+}
+
+class TanteUserProfileMissingException extends TanteApiException {
+  const TanteUserProfileMissingException({
+    required this.phoneNumber,
+    required this.token,
+    required this.role,
+  }) : super('Complete your user profile to continue.');
+
+  final String phoneNumber;
+  final String token;
+  final String role;
 }
 
 class AuthSession {
@@ -395,15 +408,84 @@ class TanteApi {
       );
     }
 
-    final user = await _request(
-      'GET',
-      '$authApiBaseUrl/v1/users/${Uri.encodeComponent(phoneNumber.trim())}',
-      token: token,
-    );
+    late final dynamic user;
+    try {
+      user = await _request(
+        'GET',
+        '$authApiBaseUrl/v1/users/${Uri.encodeComponent(phoneNumber.trim())}',
+        token: token,
+      );
+    } on TanteApiException catch (error) {
+      if (error.statusCode == 404) {
+        throw TanteUserProfileMissingException(
+          phoneNumber: phoneNumber.trim(),
+          token: token,
+          role: role,
+        );
+      }
+      rethrow;
+    }
     final userId = _int(user['id']);
     if (userId == null) {
       throw const TanteApiException(
         'Your account profile is missing a user ID.',
+      );
+    }
+    return AuthSession(
+      phoneNumber: phoneNumber.trim(),
+      token: token,
+      userId: userId,
+      role: role,
+      email: _string(user['email']).isEmpty ? null : _string(user['email']),
+      memberships: _maps(user['memberships']),
+    );
+  }
+
+  Future<Map<String, dynamic>> registerAccount({
+    required String phoneNumber,
+    required String password,
+  }) async {
+    final result = await _request(
+      'POST',
+      '$authApiBaseUrl/v1/auth/account',
+      body: {'phoneNumber': phoneNumber.trim(), 'passWord': password},
+      authenticated: false,
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The authentication service returned an invalid account.',
+      );
+    }
+    return Map<String, dynamic>.from(result);
+  }
+
+  Future<AuthSession> createUserProfile({
+    required String phoneNumber,
+    required String firstName,
+    required String lastName,
+    required String token,
+    required String role,
+  }) async {
+    final result = await _request(
+      'POST',
+      '$authApiBaseUrl/v1/users',
+      token: token,
+      body: {
+        'firstName': firstName.trim(),
+        'lastName': lastName.trim(),
+        'phoneNumber': phoneNumber.trim(),
+      },
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The authentication service returned an invalid user profile.',
+      );
+    }
+    final user = Map<String, dynamic>.from(result);
+    final userId = _int(user['id']);
+    if (userId == null) {
+      throw const TanteApiException(
+        'The authentication service returned a profile without a user ID.',
       );
     }
     return AuthSession(
@@ -594,9 +676,15 @@ class TanteApi {
     required String name,
     required String phoneNumber,
     required String type,
+    required double viewingServiceFee,
     String? email,
     int? organizationId,
   }) async {
+    if (!viewingServiceFee.isFinite || viewingServiceFee < 0) {
+      throw const TanteApiException(
+        'Enter a valid non-negative viewing service fee.',
+      );
+    }
     final result = await _request(
       'POST',
       '$rentApiBaseUrl/v1/rentalprofiles',
@@ -606,6 +694,7 @@ class TanteApi {
         'phoneNumber': phoneNumber.trim(),
         'email': email?.trim().isEmpty ?? true ? null : email!.trim(),
         'type': type,
+        'viewingServiceFee': viewingServiceFee,
         'userId': session.userId,
         'organizationId': ?organizationId,
       },
@@ -986,12 +1075,14 @@ class TanteApi {
             message.isEmpty || message == 'UNAUTHORIZED'
                 ? 'Sign-in failed. Check your phone number and password.'
                 : message,
+            statusCode: response.statusCode,
           );
         }
         throw TanteApiException(
           message.isEmpty
               ? 'Request failed (${response.statusCode}).'
               : message,
+          statusCode: response.statusCode,
         );
       }
       if (decoded is Map &&

@@ -5,6 +5,8 @@ import 'package:tante/landing_page.dart';
 import 'package:tante/login.dart';
 import 'package:tante/features/listing/listings_page.dart';
 import 'package:tante/features/listing/unit_details_page.dart';
+import 'package:tante/features/auth/create_account_page.dart';
+import 'package:tante/features/auth/complete_user_profile_page.dart';
 import 'package:tante/services/tante_api.dart';
 import 'package:tante/tante_colors.dart';
 
@@ -100,6 +102,30 @@ class MyApp extends StatelessWidget {
                 initialRole: loginArgs.role,
                 returnToPreviousRoute: loginArgs.returnToPreviousRoute,
                 api: api,
+              ),
+            );
+          case '/register':
+            final arguments = settings.arguments;
+            final registerArgs = arguments is CreateAccountRouteArgs
+                ? arguments
+                : const CreateAccountRouteArgs();
+            return MaterialPageRoute<String>(
+              settings: settings,
+              builder: (_) => CreateAccountPage(
+                api: api ?? TanteApi(),
+                initialPhoneNumber: registerArgs.initialPhoneNumber,
+              ),
+            );
+          case '/complete-user-profile':
+            final arguments = settings.arguments;
+            if (arguments is! CompleteUserProfileRouteArgs) return null;
+            return MaterialPageRoute<AuthSession>(
+              settings: settings,
+              builder: (_) => CompleteUserProfilePage(
+                api: api ?? TanteApi(),
+                phoneNumber: arguments.phoneNumber,
+                token: arguments.token,
+                role: arguments.role,
               ),
             );
           case '/listings':
