@@ -17,6 +17,7 @@ class _TenantHomePageState extends State<TenantHomePage> {
   bool _loading = true;
   String? _error;
   int _tab = 0;
+  final List<int> _tabHistory = [0];
 
   @override
   void initState() {
@@ -55,49 +56,78 @@ class _TenantHomePageState extends State<TenantHomePage> {
     }
   }
 
+  void _navigateToTab(int index) {
+    if (index == _tab) return;
+    setState(() {
+      _tab = index;
+      _tabHistory.add(index);
+    });
+  }
+
+  void _goBack() {
+    if (_tabHistory.length < 2) return;
+    setState(() {
+      _tabHistory.removeLast();
+      _tab = _tabHistory.last;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [_overview(), _rentPage(), _leasePage(), _accountPage()];
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'tante',
-          style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: .5),
+    return PopScope<Object?>(
+      canPop: _tabHistory.length <= 1,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goBack();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: _tabHistory.length > 1
+              ? IconButton(
+                  tooltip: 'Back',
+                  onPressed: _goBack,
+                  icon: const Icon(Icons.arrow_back),
+                )
+              : null,
+          title: const Text(
+            'tante',
+            style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: .5),
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: _load,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _errorState()
-          : IndexedStack(index: _tab, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.grid_view_rounded),
-            label: 'Overview',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.payments_outlined),
-            label: 'My rent',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.description_outlined),
-            label: 'Leases',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline_rounded),
-            label: 'Account',
-          ),
-        ],
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? _errorState()
+            : IndexedStack(index: _tab, children: pages),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tab,
+          onDestinationSelected: _navigateToTab,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.grid_view_rounded),
+              label: 'Overview',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.payments_outlined),
+              label: 'My rent',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.description_outlined),
+              label: 'Leases',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              label: 'Account',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -119,13 +149,13 @@ class _TenantHomePageState extends State<TenantHomePage> {
         Icons.payments_outlined,
         'View rent details',
         'See current leases and rent terms',
-        () => setState(() => _tab = 1),
+        () => _navigateToTab(1),
       ),
       _action(
         Icons.description_outlined,
         'View lease agreements',
         'Check your agreement details',
-        () => setState(() => _tab = 2),
+        () => _navigateToTab(2),
       ),
       _heading('Account'),
       _infoCard(

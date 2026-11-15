@@ -9,11 +9,68 @@ import 'package:tante/features/landlord/pages/landlord_properties_page.dart';
 import 'package:tante/features/landlord/pages/landlord_overview_page.dart';
 import 'package:tante/features/landlord/pages/landlord_viewings_page.dart';
 import 'package:tante/features/landlord/pages/property_details_page.dart';
+import 'package:tante/features/landlord/landlord_home.dart';
 import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/main.dart';
 import 'package:tante/services/tante_api.dart';
 
 void main() {
+  testWidgets('landlord back button returns to the previous visited page', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LandlordHomePage(
+          session: AuthSession(
+            phoneNumber: '+255712345678',
+            token: 'test-token',
+            userId: 42,
+            role: 'LANDLORD',
+          ),
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Tante Rentals'));
+    await tester.pumpAndSettle();
+    expect(find.text('Your rental overview'), findsOneWidget);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -450));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Manage leases'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Agreements managed through Rent Manager.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Viewings').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Viewing bookings'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Agreements managed through Rent Manager.'),
+      findsOneWidget,
+    );
+    expect(find.text('Viewing bookings'), findsNothing);
+
+    await tester.tap(find.text('Viewings').last);
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Agreements managed through Rent Manager.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('landlord overview displays viewing booking count', (
     tester,
   ) async {
@@ -505,7 +562,7 @@ void main() {
     expect(countryField, findsOneWidget);
     await tester.ensureVisible(countryField);
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Cancel'));
+    await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
 
     expect(find.text('Open form'), findsOneWidget);
@@ -1039,6 +1096,9 @@ void main() {
 
     expect(find.text('Welcome to Tante'), findsOneWidget);
     expect(find.text('Log in as Tenant'), findsOneWidget);
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('Find a property'), findsOneWidget);
   });
 
   testWidgets('tenant home finishes loading the backend tenant profile', (
@@ -1064,6 +1124,43 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
+  testWidgets('tenant back button returns to the previously visited tab', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TenantHomePage(
+          session: const AuthSession(
+            phoneNumber: '+255712345678',
+            token: 'test-token',
+            userId: 42,
+            role: 'Tenant',
+          ),
+          api: _FakeTanteApi(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('My rent').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Leases').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Your agreements and key dates.'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Rent details from your active lease agreements.'),
+      findsOneWidget,
+    );
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Your rental information, all together.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('main-page sign-in continues to tenant home', (tester) async {
     await tester.pumpWidget(MyApp(api: _FakeTanteApi()));
 
@@ -1074,6 +1171,7 @@ void main() {
       '+255712345678',
     );
     await tester.enterText(find.bySemanticsLabel('Password'), 'password');
+    await tester.ensureVisible(find.text('Log in as Tenant'));
     await tester.tap(find.text('Log in as Tenant'));
     await tester.pumpAndSettle();
 
@@ -1128,6 +1226,10 @@ void main() {
     await tester.drag(find.byType(ListView).last, const Offset(0, -600));
     await tester.pumpAndSettle();
     expect(find.text('Agency'), findsOneWidget);
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('Homes for rent'), findsOneWidget);
+    expect(find.text('1 place to explore'), findsOneWidget);
   });
 
   testWidgets('booking sign-in submits a viewing request', (tester) async {
@@ -1245,6 +1347,7 @@ Future<void> _openBookingRequest(WidgetTester tester, _FakeTanteApi api) async {
     '+255712345678',
   );
   await tester.enterText(find.bySemanticsLabel('Password'), 'password');
+  await tester.ensureVisible(find.text('Log in as Tenant'));
   await tester.tap(find.text('Log in as Tenant'));
   await tester.pumpAndSettle();
 
@@ -1305,6 +1408,31 @@ class _FakeTanteApi extends TanteApi {
               http.Response(jsonEncode({'success': true, 'data': {}}), 200),
         ),
       );
+
+  @override
+  Future<List<Map<String, dynamic>>> getRentalProfiles(
+    AuthSession session,
+  ) async {
+    return [
+      {'id': 7, 'name': 'Tante Rentals', 'type': 'BUSINESS'},
+    ];
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getProperties(
+    int rentalProfileId,
+    String token,
+  ) async {
+    return const [];
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getLandlordLeases(
+    int rentalProfileId,
+    String token,
+  ) async {
+    return const [];
+  }
 
   @override
   Future<RentalListingsPage> getListedUnits({

@@ -104,6 +104,13 @@ class _ListingsPageState extends State<ListingsPage> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         foregroundColor: TanteColors.navy,
+        leading: ModalRoute.of(context)?.canPop == true
+            ? IconButton(
+                tooltip: 'Back',
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : null,
         title: const Text(
           'tante.',
           style: TextStyle(fontWeight: FontWeight.w800),

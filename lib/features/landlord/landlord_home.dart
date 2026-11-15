@@ -14,16 +14,17 @@ import 'rental_profile_utils.dart';
 import 'widgets/rental_profile_switcher.dart';
 
 class LandlordHomePage extends StatefulWidget {
-  const LandlordHomePage({super.key, required this.session});
+  const LandlordHomePage({super.key, required this.session, this.api});
 
   final AuthSession session;
+  final TanteApi? api;
 
   @override
   State<LandlordHomePage> createState() => _LandlordHomePageState();
 }
 
 class _LandlordHomePageState extends State<LandlordHomePage> {
-  final _api = TanteApi();
+  late final TanteApi _api = widget.api ?? TanteApi();
   List<Map<String, dynamic>> _profiles = const [];
   List<Map<String, dynamic>> _properties = const [];
   List<Map<String, dynamic>> _leases = const [];
@@ -33,6 +34,23 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
   bool _loadingDashboard = false;
   String? _error;
   int _tab = 0;
+  final List<int> _tabHistory = [0];
+
+  void _navigateToTab(int index) {
+    if (index == _tab) return;
+    setState(() {
+      _tab = index;
+      _tabHistory.add(index);
+    });
+  }
+
+  void _goBack() {
+    if (_tabHistory.length < 2) return;
+    setState(() {
+      _tabHistory.removeLast();
+      _tab = _tabHistory.last;
+    });
+  }
 
   @override
   void initState() {
@@ -86,6 +104,9 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
         _leases = leases;
         _loadingDashboard = false;
         _tab = 0;
+        _tabHistory
+          ..clear()
+          ..add(0);
       });
     } on TanteApiException catch (error) {
       if (mounted) {
@@ -190,9 +211,9 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
         propertyCount: _properties.length,
         leaseCount: _leases.length,
         viewingCount: _viewingCount,
-        onOpenProperties: () => setState(() => _tab = 1),
-        onOpenLeases: () => setState(() => _tab = 2),
-        onOpenViewings: () => setState(() => _tab = 3),
+        onOpenProperties: () => _navigateToTab(1),
+        onOpenLeases: () => _navigateToTab(2),
+        onOpenViewings: () => _navigateToTab(3),
       ),
       LandlordPropertiesPage(
         properties: _properties,
@@ -220,64 +241,83 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
       ),
     ];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'tante',
-              style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: .5),
+    return PopScope<Object?>(
+      canPop: _tabHistory.length <= 1,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goBack();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: _tabHistory.length > 1
+              ? IconButton(
+                  tooltip: 'Back',
+                  onPressed: _goBack,
+                  icon: const Icon(Icons.arrow_back),
+                )
+              : null,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'tante',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: .5,
+                ),
+              ),
+              Text(
+                profile['name']?.toString() ?? 'Rental profile',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Switch rental profile',
+              onPressed: _switchProfile,
+              icon: const Icon(Icons.swap_horiz_rounded),
             ),
-            Text(
-              profile['name']?.toString() ?? 'Rental profile',
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: _loadProfiles,
+              icon: const Icon(Icons.refresh_rounded),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Switch rental profile',
-            onPressed: _switchProfile,
-            icon: const Icon(Icons.swap_horiz_rounded),
-          ),
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _loadProfiles,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: _loadingDashboard
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _errorState()
-          : IndexedStack(index: _tab, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.grid_view_rounded),
-            label: 'Overview',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.apartment_rounded),
-            label: 'Properties',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.description_outlined),
-            label: 'Leases',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.event_available_outlined),
-            label: 'Viewings',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline_rounded),
-            label: 'Account',
-          ),
-        ],
+        body: _loadingDashboard
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? _errorState()
+            : IndexedStack(index: _tab, children: pages),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tab,
+          onDestinationSelected: _navigateToTab,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.grid_view_rounded),
+              label: 'Overview',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.apartment_rounded),
+              label: 'Properties',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.description_outlined),
+              label: 'Leases',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.event_available_outlined),
+              label: 'Viewings',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              label: 'Account',
+            ),
+          ],
+        ),
       ),
     );
   }

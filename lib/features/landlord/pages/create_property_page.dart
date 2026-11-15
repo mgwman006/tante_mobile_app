@@ -106,9 +106,9 @@ class _CreatePropertyPageState extends State<CreatePropertyPage> {
       appBar: AppBar(
         title: const Text('Add property'),
         leading: IconButton(
-          tooltip: 'Cancel',
+          tooltip: 'Back',
           onPressed: _saving ? null : () => Navigator.pop(context),
-          icon: const Icon(Icons.close),
+          icon: const Icon(Icons.arrow_back),
         ),
       ),
       body: Form(

@@ -87,9 +87,9 @@ class _CreateUnitPageState extends State<CreateUnitPage> {
       appBar: AppBar(
         title: const Text('Add unit'),
         leading: IconButton(
-          tooltip: 'Cancel',
+          tooltip: 'Back',
           onPressed: _saving ? null : () => Navigator.pop(context),
-          icon: const Icon(Icons.close),
+          icon: const Icon(Icons.arrow_back),
         ),
       ),
       body: Form(

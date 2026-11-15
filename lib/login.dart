@@ -79,6 +79,18 @@ class _LoginState extends State<Login> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: ModalRoute.of(context)?.canPop == true
+          ? AppBar(
+              backgroundColor: Colors.transparent,
+              foregroundColor: const Color(0xFF173F58),
+              elevation: 0,
+              leading: IconButton(
+                tooltip: 'Back',
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back),
+              ),
+            )
+          : null,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(

@@ -284,11 +284,13 @@ class _UnitDetailsPageState extends State<UnitDetailsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Home details'),
-        leading: IconButton(
-          tooltip: 'Back to listings',
-          onPressed: () => Navigator.maybePop(context),
-          icon: const Icon(Icons.arrow_back_rounded),
-        ),
+        leading: ModalRoute.of(context)?.canPop == true
+            ? IconButton(
+                tooltip: 'Back',
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : null,
       ),
       body: FutureBuilder<RentalUnitDetails>(
         future: _unitFuture,
