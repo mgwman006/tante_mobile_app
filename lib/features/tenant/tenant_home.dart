@@ -169,7 +169,7 @@ class _TenantHomePageState extends State<TenantHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [_overview(), _rentPage(), _leasePage(), _accountPage()];
+    final pages = [_overview(), _leasePage(), _accountPage()];
     return PopScope<Object?>(
       canPop: _tabHistory.length <= 1,
       onPopInvokedWithResult: (didPop, _) {
@@ -208,10 +208,6 @@ class _TenantHomePageState extends State<TenantHomePage> {
             NavigationDestination(
               icon: Icon(Icons.grid_view_rounded),
               label: 'Overview',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.payments_outlined),
-              label: 'My rent',
             ),
             NavigationDestination(
               icon: Icon(Icons.description_outlined),
@@ -257,16 +253,10 @@ class _TenantHomePageState extends State<TenantHomePage> {
       ),
       _heading('Quick actions'),
       _action(
-        Icons.payments_outlined,
-        'View rent details',
-        'See current leases and rent terms',
-        () => _navigateToTab(1),
-      ),
-      _action(
         Icons.description_outlined,
         'View lease agreements',
         'Check your agreement details',
-        () => _navigateToTab(2),
+        () => _navigateToTab(1),
       ),
       _heading('Account'),
       _infoCard(
@@ -275,23 +265,6 @@ class _TenantHomePageState extends State<TenantHomePage> {
         widget.session.phoneNumber,
       ),
     ],
-  );
-
-  Widget _rentPage() => _page(
-    title: 'My rent',
-    subtitle: 'Rent details from your active lease agreements.',
-    children: _activeLeases.isEmpty
-        ? [_empty('No rent information is available yet.')]
-        : _activeLeases.map((lease) {
-            final rent = lease['rent'] is Map
-                ? Map<String, dynamic>.from(lease['rent'] as Map)
-                : const <String, dynamic>{};
-            return _leaseCard(
-              lease,
-              'Rent: ${rent['amount'] ?? rent['rentAmount'] ?? '—'} ${rent['currency'] ?? ''}\nStatus: ${_readable(lease['status'])}\n${lease['startDate'] ?? ''} – ${lease['endDate'] ?? ''}',
-              Icons.payments_outlined,
-            );
-          }).toList(),
   );
 
   Widget _leasePage() => _page(

@@ -1973,6 +1973,8 @@ void main() {
 
     expect(find.text('Welcome home, Jordan'), findsOneWidget);
     expect(find.text('No active lease found'), findsOneWidget);
+    expect(find.text('View rent details'), findsNothing);
+    expect(find.text('My rent'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
@@ -1994,18 +1996,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('My rent').last);
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Leases').last);
     await tester.pumpAndSettle();
     expect(find.text('Your agreements and key dates.'), findsOneWidget);
+    await tester.tap(find.text('Account').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Your Tante tenant account.'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
-    expect(
-      find.text('Rent details from your active lease agreements.'),
-      findsOneWidget,
-    );
+    expect(find.text('Your agreements and key dates.'), findsOneWidget);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
@@ -2154,7 +2154,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('My rent').last);
+    await tester.tap(find.text('Leases').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Lease LEASE-15'));
     await tester.pumpAndSettle();
