@@ -22,6 +22,11 @@ class _TenantHomePageState extends State<TenantHomePage> {
   List<Map<String, dynamic>> _viewings = const [];
   String? _invitationsError;
   String? _viewingsError;
+  Map<String, double> _unpaidThroughMonthByCurrency = const {};
+  Map<String, double> _totalOutstandingByCurrency = const {};
+  String? _outstandingError;
+  bool _loadingOutstanding = true;
+  bool _showTotalOutstanding = false;
   bool _showEndedLeases = false;
   bool _loading = true;
   String? _error;
@@ -52,6 +57,13 @@ class _TenantHomePageState extends State<TenantHomePage> {
         );
       }
       final leases = await _api.getTenantLeases(tenantId, widget.session.token);
+      if (!mounted) return;
+      setState(() {
+        _tenant = tenant;
+        _leases = leases;
+        _loading = false;
+      });
+      await _loadOutstanding(leases);
       final extras = await Future.wait([
         _loadOptionalList(
           () => _api.getTenantInvitations(
@@ -68,13 +80,10 @@ class _TenantHomePageState extends State<TenantHomePage> {
       ]);
       if (!mounted) return;
       setState(() {
-        _tenant = tenant;
-        _leases = leases;
         _invitations = extras[0].items;
         _invitationsError = extras[0].error;
         _viewings = extras[1].items;
         _viewingsError = extras[1].error;
-        _loading = false;
       });
     } on TanteApiException catch (error) {
       if (mounted) {
@@ -110,6 +119,91 @@ class _TenantHomePageState extends State<TenantHomePage> {
   List<Map<String, dynamic>> get _activeLeases => _leases
       .where((lease) => lease['status']?.toString().toUpperCase() == 'ACTIVE')
       .toList();
+
+  Future<void> _loadOutstanding([List<Map<String, dynamic>>? leases]) async {
+    final activeLeases = (leases ?? _activeLeases)
+        .where((lease) => lease['status']?.toString().toUpperCase() == 'ACTIVE')
+        .toList();
+    setState(() {
+      _loadingOutstanding = true;
+      _outstandingError = null;
+    });
+
+    try {
+      final leaseSummaries = await Future.wait(
+        activeLeases.map((lease) {
+          final leaseId = _asInt(lease['id']);
+          if (leaseId == null) {
+            throw const TanteApiException(
+              'An active lease is missing its identifier.',
+            );
+          }
+          return _api.getLeaseRentSummary(leaseId, widget.session.token);
+        }),
+      );
+      final unpaidThroughMonthByCurrency = <String, double>{};
+      final totalOutstandingByCurrency = <String, double>{};
+      final now = DateTime.now();
+      final endOfCurrentMonth = DateTime(now.year, now.month + 1, 0);
+      for (var index = 0; index < leaseSummaries.length; index++) {
+        final summary = leaseSummaries[index];
+        final lease = activeLeases[index];
+        final rent = lease['rent'] is Map
+            ? Map<String, dynamic>.from(lease['rent'] as Map)
+            : const <String, dynamic>{};
+        final currency = rent['currency']?.toString() ?? 'TZS';
+        final blocks = summary['paymentBlocks'] as List;
+        for (final rawBlock in blocks) {
+          final block = Map<String, dynamic>.from(rawBlock as Map);
+          final startDate = DateTime.tryParse(
+            block['startDate']?.toString() ?? '',
+          );
+          final dueDate = DateTime.tryParse(block['dueDate']?.toString() ?? '');
+          final outstandingValue = block['outstandingAmount'];
+          final outstanding = outstandingValue is num
+              ? outstandingValue.toDouble()
+              : double.tryParse(outstandingValue?.toString() ?? '');
+          final status = block['status']?.toString().toUpperCase();
+          if (startDate == null ||
+              dueDate == null ||
+              outstanding == null ||
+              (status != 'PAID' && status != 'UNPAID')) {
+            throw const TanteApiException(
+              'The rent service returned invalid payment schedule details.',
+            );
+          }
+          if (status == 'UNPAID' && outstanding > 0) {
+            totalOutstandingByCurrency.update(
+              currency,
+              (total) => total + outstanding,
+              ifAbsent: () => outstanding,
+            );
+            if (!startDate.isAfter(endOfCurrentMonth)) {
+              unpaidThroughMonthByCurrency.update(
+                currency,
+                (total) => total + outstanding,
+                ifAbsent: () => outstanding,
+              );
+            }
+          }
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _unpaidThroughMonthByCurrency = unpaidThroughMonthByCurrency;
+          _totalOutstandingByCurrency = totalOutstandingByCurrency;
+          _loadingOutstanding = false;
+        });
+      }
+    } on TanteApiException catch (error) {
+      if (mounted) {
+        setState(() {
+          _outstandingError = error.message;
+          _loadingOutstanding = false;
+        });
+      }
+    }
+  }
 
   Future<void> _openViewings() => Navigator.of(context).push(
     MaterialPageRoute<void>(
@@ -228,13 +322,7 @@ class _TenantHomePageState extends State<TenantHomePage> {
         'Welcome home${_tenant?['firstName'] == null ? '' : ', ${_tenant!['firstName']}'}',
     subtitle: 'Your rental information, all together.',
     children: [
-      _infoCard(
-        Icons.home_work_outlined,
-        'Your home',
-        _activeLeases.isEmpty
-            ? 'No active lease found'
-            : 'You have ${_activeLeases.length} active lease${_activeLeases.length == 1 ? '' : 's'} on your account.',
-      ),
+      _monthlyDueCard(),
       _action(
         Icons.mark_email_unread_outlined,
         'Lease invitations',
@@ -315,6 +403,85 @@ class _TenantHomePageState extends State<TenantHomePage> {
           onTap: () => _openLease(lease),
         ),
       );
+
+  Widget _monthlyDueCard() {
+    final detail = _loadingOutstanding
+        ? 'Calculating outstanding amount...'
+        : _outstandingError != null
+        ? _outstandingError!
+        : _formatOutstanding();
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.payments_outlined, color: Color(0xFF19A75C)),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Amount due',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (_outstandingError != null)
+                  IconButton(
+                    tooltip: 'Retry amount due',
+                    onPressed: () => _loadOutstanding(),
+                    icon: const Icon(Icons.refresh),
+                  )
+                else if (_loadingOutstanding)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  label: Text('Unpaid up to this month'),
+                ),
+                ButtonSegment(value: true, label: Text('Total outstanding')),
+              ],
+              selected: {_showTotalOutstanding},
+              onSelectionChanged: (selection) =>
+                  setState(() => _showTotalOutstanding = selection.first),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              detail,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF102F4C),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatOutstanding() {
+    final amounts = _showTotalOutstanding
+        ? _totalOutstandingByCurrency
+        : _unpaidThroughMonthByCurrency;
+    if (amounts.isEmpty) return 'TZS 0';
+    return amounts.entries
+        .map((entry) => '${entry.key} ${_formatAmount(entry.value)}')
+        .join(' · ');
+  }
+
+  String _formatAmount(double amount) => amount
+      .round()
+      .toString()
+      .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',');
 
   Widget _accountPage() => _page(
     title: 'Account',

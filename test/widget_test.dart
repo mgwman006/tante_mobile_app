@@ -1972,11 +1972,147 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome home, Jordan'), findsOneWidget);
-    expect(find.text('No active lease found'), findsOneWidget);
+    expect(find.text('Your home'), findsNothing);
     expect(find.text('View rent details'), findsNothing);
     expect(find.text('My rent'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
+
+  testWidgets(
+    'tenant amount choices total unpaid blocks across active leases',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final now = DateTime.now();
+      final previousMonth = DateTime(now.year, now.month - 1, 1);
+      final previousMonthEnd = DateTime(now.year, now.month, 0);
+      final monthStart = DateTime(now.year, now.month, 1);
+      final monthEnd = DateTime(now.year, now.month + 1, 0);
+      final nextMonth = DateTime(now.year, now.month + 1, 1);
+      final nextMonthEnd = DateTime(now.year, now.month + 2, 0);
+      String date(DateTime value) =>
+          '${value.year}-${value.month.toString().padLeft(2, '0')}-'
+          '${value.day.toString().padLeft(2, '0')}';
+      Map<String, dynamic> block({
+        required DateTime start,
+        required DateTime end,
+        required double outstanding,
+        required String status,
+      }) => {
+        'startDate': date(start),
+        'endDate': date(end),
+        'dueDate': date(end),
+        'outstandingAmount': outstanding,
+        'status': status,
+      };
+      final api = _FakeTanteApi()
+        ..tenantLeases = [
+          {
+            'id': 15,
+            'status': 'ACTIVE',
+            'rent': {'currency': 'TZS'},
+          },
+          {
+            'id': 16,
+            'status': 'ACTIVE',
+            'rent': {'currency': 'TZS'},
+          },
+          {
+            'id': 17,
+            'status': 'ENDED',
+            'rent': {'currency': 'TZS'},
+          },
+        ]
+        ..tenantPaymentSummaries = {
+          15: {
+            'totalExpectedAmount': 1000000,
+            'totalPaidAmount': 0,
+            'totalOutstandingAmount': 850000,
+            'paymentBlocks': [
+              block(
+                start: previousMonth,
+                end: previousMonthEnd,
+                outstanding: 50000,
+                status: 'UNPAID',
+              ),
+              block(
+                start: monthStart,
+                end: nextMonth,
+                outstanding: 850000,
+                status: 'UNPAID',
+              ),
+              block(
+                start: nextMonth,
+                end: nextMonthEnd,
+                outstanding: 70000,
+                status: 'UNPAID',
+              ),
+              block(
+                start: monthStart,
+                end: monthEnd,
+                outstanding: 0,
+                status: 'PAID',
+              ),
+            ],
+          },
+          16: {
+            'totalExpectedAmount': 120000,
+            'totalPaidAmount': 0,
+            'totalOutstandingAmount': 120000,
+            'paymentBlocks': [
+              block(
+                start: monthStart,
+                end: monthEnd,
+                outstanding: 120000,
+                status: 'UNPAID',
+              ),
+            ],
+          },
+          17: {
+            'totalExpectedAmount': 900000,
+            'totalPaidAmount': 0,
+            'totalOutstandingAmount': 900000,
+            'paymentBlocks': [
+              block(
+                start: monthStart,
+                end: monthEnd,
+                outstanding: 900000,
+                status: 'UNPAID',
+              ),
+            ],
+          },
+        };
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TenantHomePage(
+            session: const AuthSession(
+              phoneNumber: '+255712345678',
+              token: 'test-token',
+              userId: 42,
+              role: 'Tenant',
+            ),
+            api: api,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Your home'), findsNothing);
+      expect(find.text('Unpaid up to this month'), findsOneWidget);
+      expect(find.text('Total outstanding'), findsOneWidget);
+      expect(find.text('TZS 1,020,000'), findsOneWidget);
+      expect(api.tenantPaymentSummaryLeaseIds, [15, 16]);
+
+      await tester.tap(find.text('Total outstanding'));
+      await tester.pumpAndSettle();
+      expect(find.text('TZS 1,090,000'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('tenant back button returns to the previously visited tab', (
     tester,
@@ -2585,6 +2721,8 @@ class _FakeTanteApi extends TanteApi {
   double? recordedTenantPaymentAmount;
   int? recordedTenantPaymentUserId;
   String? recordedTenantPaymentReference;
+  Map<int, Map<String, dynamic>> tenantPaymentSummaries = {};
+  final List<int> tenantPaymentSummaryLeaseIds = [];
 
   _FakeTanteApi()
     : super(
@@ -2690,6 +2828,9 @@ class _FakeTanteApi extends TanteApi {
     String token,
   ) async {
     paymentSummaryRequests++;
+    tenantPaymentSummaryLeaseIds.add(leaseId);
+    final tenantSummary = tenantPaymentSummaries[leaseId];
+    if (tenantSummary != null) return tenantSummary;
     return {
       'totalExpectedAmount': 850000,
       'totalPaidAmount': 0,
