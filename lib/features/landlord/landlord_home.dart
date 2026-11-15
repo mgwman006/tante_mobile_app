@@ -6,6 +6,7 @@ import 'pages/landlord_account_page.dart';
 import 'pages/create_property_page.dart';
 import 'pages/landlord_leases_page.dart';
 import 'pages/landlord_overview_page.dart';
+import 'pages/landlord_viewings_page.dart';
 import 'pages/property_details_page.dart';
 import 'pages/landlord_properties_page.dart';
 import 'pages/rental_profile_picker_page.dart';
@@ -26,6 +27,7 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
   List<Map<String, dynamic>> _profiles = const [];
   List<Map<String, dynamic>> _properties = const [];
   List<Map<String, dynamic>> _leases = const [];
+  int _viewingCount = 0;
   Map<String, dynamic>? _selectedProfile;
   bool _loadingProfiles = true;
   bool _loadingDashboard = false;
@@ -71,6 +73,7 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
     if (id == null) return;
     setState(() {
       _selectedProfile = profile;
+      _viewingCount = 0;
       _loadingDashboard = true;
       _error = null;
     });
@@ -179,13 +182,17 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
     if (_selectedProfile == null) return _profilePicker();
 
     final profile = _selectedProfile!;
+    final selectedRentalProfileId = rentalProfileIdFrom(profile['id']);
+    if (selectedRentalProfileId == null) return _profilePicker();
     final pages = [
       LandlordOverviewPage(
         profileName: profile['name']?.toString() ?? 'your rental profile',
         propertyCount: _properties.length,
         leaseCount: _leases.length,
+        viewingCount: _viewingCount,
         onOpenProperties: () => setState(() => _tab = 1),
         onOpenLeases: () => setState(() => _tab = 2),
+        onOpenViewings: () => setState(() => _tab = 3),
       ),
       LandlordPropertiesPage(
         properties: _properties,
@@ -193,6 +200,18 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
         onOpenProperty: _openProperty,
       ),
       LandlordLeasesPage(leases: _leases),
+      LandlordViewingsPage(
+        api: _api,
+        rentalProfileId: selectedRentalProfileId,
+        rentalProfileName: profile['name']?.toString() ?? 'Rental profile',
+        token: widget.session.token,
+        onBookingsLoaded: (count) {
+          if (rentalProfileIdFrom(_selectedProfile?['id']) ==
+              selectedRentalProfileId) {
+            setState(() => _viewingCount = count);
+          }
+        },
+      ),
       LandlordAccountPage(
         profile: profile,
         fallbackPhoneNumber: widget.session.phoneNumber,
@@ -249,6 +268,10 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
           NavigationDestination(
             icon: Icon(Icons.description_outlined),
             label: 'Leases',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.event_available_outlined),
+            label: 'Viewings',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline_rounded),

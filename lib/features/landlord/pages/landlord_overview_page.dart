@@ -8,15 +8,19 @@ class LandlordOverviewPage extends StatelessWidget {
     required this.profileName,
     required this.propertyCount,
     required this.leaseCount,
+    required this.viewingCount,
     required this.onOpenProperties,
     required this.onOpenLeases,
+    required this.onOpenViewings,
   });
 
   final String profileName;
   final int propertyCount;
   final int leaseCount;
+  final int viewingCount;
   final VoidCallback onOpenProperties;
   final VoidCallback onOpenLeases;
+  final VoidCallback onOpenViewings;
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +38,11 @@ class LandlordOverviewPage extends StatelessWidget {
           value: '$leaseCount',
           icon: Icons.description_outlined,
         ),
+        LandlordMetricCard(
+          label: 'Viewing bookings',
+          value: '$viewingCount',
+          icon: Icons.event_available_outlined,
+        ),
         const LandlordSectionHeading('Quick actions'),
         LandlordActionCard(
           icon: Icons.apartment_rounded,
@@ -46,6 +55,12 @@ class LandlordOverviewPage extends StatelessWidget {
           title: 'Manage leases',
           subtitle: 'Review current lease agreements',
           onTap: onOpenLeases,
+        ),
+        LandlordActionCard(
+          icon: Icons.event_available_outlined,
+          title: 'Manage viewing bookings',
+          subtitle: 'Approve requests and record viewing outcomes',
+          onTap: onOpenViewings,
         ),
       ],
     );

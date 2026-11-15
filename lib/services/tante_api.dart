@@ -475,6 +475,99 @@ class TanteApi {
     return Map<String, dynamic>.from(result);
   }
 
+  Future<List<Map<String, dynamic>>> getViewingBookings(
+    int rentalProfileId,
+    String token,
+  ) async {
+    final result = await _request(
+      'GET',
+      '$rentApiBaseUrl/v1/viewings/bookings/by-rental-profile/$rentalProfileId',
+      token: token,
+    );
+    if (result is! List || result.any((booking) => booking is! Map)) {
+      throw const TanteApiException(
+        'The rent service returned invalid viewing bookings.',
+      );
+    }
+    return result.map((booking) {
+      final parsed = Map<String, dynamic>.from(booking as Map);
+      _validateViewingBooking(parsed);
+      return parsed;
+    }).toList();
+  }
+
+  Future<Map<String, dynamic>> approveViewingBooking({
+    required int bookingId,
+    required String token,
+  }) {
+    return _updateViewingBooking(
+      bookingId: bookingId,
+      action: 'approve',
+      token: token,
+    );
+  }
+
+  Future<Map<String, dynamic>> rejectViewingBooking({
+    required int bookingId,
+    required String token,
+  }) {
+    return _updateViewingBooking(
+      bookingId: bookingId,
+      action: 'reject',
+      token: token,
+    );
+  }
+
+  Future<Map<String, dynamic>> cancelViewingBooking({
+    required int bookingId,
+    required String token,
+  }) {
+    return _updateViewingBooking(
+      bookingId: bookingId,
+      action: 'cancel',
+      token: token,
+    );
+  }
+
+  Future<Map<String, dynamic>> recordViewingOutcome({
+    required int bookingId,
+    required String outcome,
+    required String token,
+    String? notes,
+  }) {
+    return _updateViewingBooking(
+      bookingId: bookingId,
+      action: 'outcome',
+      token: token,
+      body: {
+        'outcome': outcome,
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> _updateViewingBooking({
+    required int bookingId,
+    required String action,
+    required String token,
+    Object? body,
+  }) async {
+    final result = await _request(
+      'PATCH',
+      '$rentApiBaseUrl/v1/viewings/bookings/$bookingId/$action',
+      token: token,
+      body: body,
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The rent service returned an invalid updated viewing booking.',
+      );
+    }
+    final booking = Map<String, dynamic>.from(result);
+    _validateViewingBooking(booking);
+    return booking;
+  }
+
   Future<Map<String, dynamic>> createRentalProfile({
     required AuthSession session,
     required String name,
@@ -623,7 +716,11 @@ class TanteApi {
               .timeout(const Duration(seconds: 20)),
         'PATCH' =>
           await _client
-              .patch(uri, headers: headers, body: jsonEncode(body))
+              .patch(
+                uri,
+                headers: headers,
+                body: body == null ? null : jsonEncode(body),
+              )
               .timeout(const Duration(seconds: 20)),
         'GET' =>
           await _client
@@ -728,6 +825,40 @@ class TanteApi {
 
   static int? _int(dynamic value) =>
       value is num ? value.toInt() : int.tryParse(_string(value));
+}
+
+void _validateViewingBooking(Map<String, dynamic> booking) {
+  final requiredIntegerFields = [
+    'id',
+    'rentalProfileId',
+    'unitId',
+    'requesterUserId',
+  ];
+  final hasInvalidInteger = requiredIntegerFields.any((field) {
+    final value = booking[field];
+    return value is! num && int.tryParse(value?.toString() ?? '') == null;
+  });
+  final requiredStringFields = [
+    'reference',
+    'startTime',
+    'endTime',
+    'status',
+    'paymentStatus',
+  ];
+  final hasInvalidString = requiredStringFields.any((field) {
+    final value = booking[field];
+    return value is! String || value.trim().isEmpty;
+  });
+  final fee = booking['serviceFee'];
+  final outcome = booking['outcome'];
+  if (hasInvalidInteger ||
+      hasInvalidString ||
+      (fee is! num && double.tryParse(fee?.toString() ?? '') == null) ||
+      (outcome != null && outcome is! Map)) {
+    throw const TanteApiException(
+      'The rent service returned an invalid viewing booking.',
+    );
+  }
 }
 
 int _requiredInt(Map<String, dynamic> json, String key) {
