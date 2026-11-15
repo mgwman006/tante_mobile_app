@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+
+import 'tenant_invitations_page.dart';
+import 'tenant_lease_details_page.dart';
+import 'tenant_viewings_page.dart';
 import 'package:tante/services/tante_api.dart';
 
 class TenantHomePage extends StatefulWidget {
@@ -14,6 +18,11 @@ class _TenantHomePageState extends State<TenantHomePage> {
   late final TanteApi _api;
   Map<String, dynamic>? _tenant;
   List<Map<String, dynamic>> _leases = const [];
+  List<Map<String, dynamic>> _invitations = const [];
+  List<Map<String, dynamic>> _viewings = const [];
+  String? _invitationsError;
+  String? _viewingsError;
+  bool _showEndedLeases = false;
   bool _loading = true;
   String? _error;
   int _tab = 0;
@@ -37,13 +46,34 @@ class _TenantHomePageState extends State<TenantHomePage> {
         widget.session.token,
       );
       final tenantId = _asInt(tenant['id']);
-      final leases = tenantId == null
-          ? <Map<String, dynamic>>[]
-          : await _api.getTenantLeases(tenantId, widget.session.token);
+      if (tenantId == null) {
+        throw const TanteApiException(
+          'The tenant profile is missing its account identifier.',
+        );
+      }
+      final leases = await _api.getTenantLeases(tenantId, widget.session.token);
+      final extras = await Future.wait([
+        _loadOptionalList(
+          () => _api.getTenantInvitations(
+            widget.session.phoneNumber,
+            widget.session.token,
+          ),
+        ),
+        _loadOptionalList(
+          () => _api.getTenantViewingBookings(
+            widget.session.userId,
+            widget.session.token,
+          ),
+        ),
+      ]);
       if (!mounted) return;
       setState(() {
         _tenant = tenant;
         _leases = leases;
+        _invitations = extras[0].items;
+        _invitationsError = extras[0].error;
+        _viewings = extras[1].items;
+        _viewingsError = extras[1].error;
         _loading = false;
       });
     } on TanteApiException catch (error) {
@@ -70,6 +100,71 @@ class _TenantHomePageState extends State<TenantHomePage> {
       _tabHistory.removeLast();
       _tab = _tabHistory.last;
     });
+  }
+
+  List<Map<String, dynamic>> get _visibleLeases => _leases.where((lease) {
+    final status = lease['status']?.toString().toUpperCase();
+    return _showEndedLeases ? status == 'ENDED' : status == 'ACTIVE';
+  }).toList();
+
+  List<Map<String, dynamic>> get _activeLeases => _leases
+      .where((lease) => lease['status']?.toString().toUpperCase() == 'ACTIVE')
+      .toList();
+
+  Future<void> _openViewings() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (context) => Scaffold(
+        appBar: AppBar(title: const Text('Viewing bookings')),
+        body: TenantViewingsPage(
+          bookings: _viewings,
+          error: _viewingsError,
+          onRetry: () {
+            Navigator.of(context).pop();
+            _load();
+          },
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _openInvitations() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (context) => TenantInvitationsPage(
+        invitations: _invitations,
+        error: _invitationsError,
+        session: widget.session,
+        api: _api,
+        onRetry: () {
+          Navigator.of(context).pop();
+          _load();
+        },
+        onAccepted: () {
+          Navigator.of(context).pop();
+          _load();
+        },
+      ),
+    ),
+  );
+
+  Future<void> _openLease(Map<String, dynamic> lease) async {
+    final leaseId = _asInt(lease['id']);
+    final tenantId = _asInt(_tenant?['id']);
+    if (leaseId == null || tenantId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lease details are unavailable.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => TenantLeaseDetailsPage(
+          leaseId: leaseId,
+          tenantId: tenantId,
+          session: widget.session,
+          api: _api,
+        ),
+      ),
+    );
   }
 
   @override
@@ -140,9 +235,25 @@ class _TenantHomePageState extends State<TenantHomePage> {
       _infoCard(
         Icons.home_work_outlined,
         'Your home',
-        _leases.isEmpty
+        _activeLeases.isEmpty
             ? 'No active lease found'
-            : 'You have ${_leases.length} lease${_leases.length == 1 ? '' : 's'} on your account.',
+            : 'You have ${_activeLeases.length} active lease${_activeLeases.length == 1 ? '' : 's'} on your account.',
+      ),
+      _action(
+        Icons.mark_email_unread_outlined,
+        'Lease invitations',
+        _invitationsError != null
+            ? 'Could not load invitations. Tap to retry.'
+            : '${_invitations.length} invitation${_invitations.length == 1 ? '' : 's'} to review',
+        _openInvitations,
+      ),
+      _action(
+        Icons.event_outlined,
+        'Viewing bookings',
+        _viewingsError != null
+            ? 'Could not load viewing bookings. Tap to retry.'
+            : '${_viewings.length} viewing booking${_viewings.length == 1 ? '' : 's'}',
+        _openViewings,
       ),
       _heading('Quick actions'),
       _action(
@@ -169,16 +280,16 @@ class _TenantHomePageState extends State<TenantHomePage> {
   Widget _rentPage() => _page(
     title: 'My rent',
     subtitle: 'Rent details from your active lease agreements.',
-    children: _leases.isEmpty
+    children: _activeLeases.isEmpty
         ? [_empty('No rent information is available yet.')]
-        : _leases.map((lease) {
+        : _activeLeases.map((lease) {
             final rent = lease['rent'] is Map
                 ? Map<String, dynamic>.from(lease['rent'] as Map)
                 : const <String, dynamic>{};
-            return _infoCard(
+            return _leaseCard(
+              lease,
+              'Rent: ${rent['amount'] ?? rent['rentAmount'] ?? '—'} ${rent['currency'] ?? ''}\nStatus: ${_readable(lease['status'])}\n${lease['startDate'] ?? ''} – ${lease['endDate'] ?? ''}',
               Icons.payments_outlined,
-              'Lease ${lease['referenceNumber'] ?? lease['id'] ?? ''}',
-              'Rent: ${rent['amount'] ?? rent['rentAmount'] ?? '—'} ${rent['currency'] ?? ''}\nStatus: ${lease['status'] ?? '—'}\n${lease['startDate'] ?? ''} – ${lease['endDate'] ?? ''}',
             );
           }).toList(),
   );
@@ -186,18 +297,51 @@ class _TenantHomePageState extends State<TenantHomePage> {
   Widget _leasePage() => _page(
     title: 'My leases',
     subtitle: 'Your agreements and key dates.',
-    children: _leases.isEmpty
-        ? [_empty('No leases were found for this tenant account.')]
-        : _leases
-              .map(
-                (lease) => _infoCard(
-                  Icons.description_outlined,
-                  'Lease ${lease['referenceNumber'] ?? lease['id'] ?? ''}',
-                  'Status: ${lease['status'] ?? '—'}\nTerm: ${lease['startDate'] ?? '—'} – ${lease['endDate'] ?? '—'}\nUnit: ${lease['unitId'] ?? '—'}',
-                ),
-              )
-              .toList(),
+    children: [
+      SegmentedButton<bool>(
+        segments: const [
+          ButtonSegment(value: false, label: Text('Active')),
+          ButtonSegment(value: true, label: Text('Ended')),
+        ],
+        selected: {_showEndedLeases},
+        onSelectionChanged: (selection) =>
+            setState(() => _showEndedLeases = selection.first),
+      ),
+      const SizedBox(height: 16),
+      if (_visibleLeases.isEmpty)
+        _empty(
+          _showEndedLeases
+              ? 'No ended leases were found.'
+              : 'No active leases were found.',
+        )
+      else
+        ..._visibleLeases.map(
+          (lease) => _leaseCard(
+            lease,
+            'Status: ${_readable(lease['status'])}\nTerm: ${lease['startDate'] ?? '—'} – ${lease['endDate'] ?? '—'}\nUnit: ${lease['unitId'] ?? '—'}',
+            Icons.description_outlined,
+          ),
+        ),
+    ],
   );
+
+  Widget _leaseCard(Map<String, dynamic> lease, String detail, IconData icon) =>
+      Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: const Color(0xFFE7F8E7),
+            child: Icon(icon, color: const Color(0xFF19A75C)),
+          ),
+          title: Text(
+            'Lease ${lease['referenceNumber'] ?? lease['id'] ?? ''}',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(detail),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _openLease(lease),
+        ),
+      );
 
   Widget _accountPage() => _page(
     title: 'Account',
@@ -314,4 +458,30 @@ class _TenantHomePageState extends State<TenantHomePage> {
 
   int? _asInt(dynamic value) =>
       value is num ? value.toInt() : int.tryParse(value?.toString() ?? '');
+
+  Future<_TenantListResult> _loadOptionalList(
+    Future<List<Map<String, dynamic>>> Function() load,
+  ) async {
+    try {
+      return _TenantListResult(await load(), null);
+    } on TanteApiException catch (error) {
+      return _TenantListResult(const [], error.message);
+    }
+  }
+
+  String _readable(Object? value) => (value?.toString() ?? 'Unknown')
+      .split('_')
+      .map(
+        (word) => word.isEmpty
+            ? word
+            : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+      )
+      .join(' ');
+}
+
+class _TenantListResult {
+  const _TenantListResult(this.items, this.error);
+
+  final List<Map<String, dynamic>> items;
+  final String? error;
 }

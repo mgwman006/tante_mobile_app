@@ -1025,6 +1025,39 @@ class TanteApi {
     return Map<String, dynamic>.from(result);
   }
 
+  Future<String> recordTenantLeasePayment({
+    required int tenantId,
+    required int paymentBlockId,
+    required double amount,
+    required String currency,
+    required int payerUserId,
+    required String method,
+    required String token,
+    String? reference,
+    String? note,
+  }) async {
+    final result = await _request(
+      'POST',
+      '$rentApiBaseUrl/v1/payment-blocks/tenant/$tenantId/record-payment',
+      token: token,
+      body: {
+        'paymentBlockId': paymentBlockId,
+        'amount': amount,
+        'currency': currency,
+        'payerUserId': payerUserId,
+        'method': method,
+        'reference': reference?.trim() ?? '',
+        'note': note?.trim() ?? '',
+      },
+    );
+    if (result is! String || result.trim().isEmpty) {
+      throw const TanteApiException(
+        'The rent service returned an invalid payment confirmation.',
+      );
+    }
+    return result;
+  }
+
   Future<String> recordLeasePayment({
     required int rentalProfileId,
     required int paymentBlockId,
@@ -1085,7 +1118,103 @@ class TanteApi {
       '$rentApiBaseUrl/v1/leases/tenant/$tenantId',
       token: token,
     );
-    return _maps(result);
+    if (result is! List || result.any((lease) => lease is! Map)) {
+      throw const TanteApiException(
+        'The rent service returned invalid tenant leases.',
+      );
+    }
+    return result
+        .map((lease) => Map<String, dynamic>.from(lease as Map))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getTenantInvitations(
+    String phoneNumber,
+    String token,
+  ) async {
+    final result = await _request(
+      'GET',
+      '$rentApiBaseUrl/v1/lease-invitations/phone/${Uri.encodeComponent(phoneNumber)}',
+      token: token,
+    );
+    if (result is! List || result.any((invitation) => invitation is! Map)) {
+      throw const TanteApiException(
+        'The rent service returned invalid lease invitations.',
+      );
+    }
+    return result.map((invitation) {
+      final parsed = Map<String, dynamic>.from(invitation as Map);
+      if (!_isNumber(parsed['id']) ||
+          !_isNumber(parsed['leaseId']) ||
+          parsed['invitationToken'] is! String ||
+          (parsed['invitationToken'] as String).trim().isEmpty ||
+          parsed['status'] is! String ||
+          (parsed['status'] as String).trim().isEmpty) {
+        throw const TanteApiException(
+          'The rent service returned an invalid lease invitation.',
+        );
+      }
+      return parsed;
+    }).toList();
+  }
+
+  Future<Map<String, dynamic>> getTenantInvitation(
+    String invitationToken,
+    String token,
+  ) async {
+    final result = await _request(
+      'GET',
+      '$rentApiBaseUrl/v1/lease-invitations/${Uri.encodeComponent(invitationToken)}',
+      token: token,
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The rent service returned invalid invitation details.',
+      );
+    }
+    final invitation = Map<String, dynamic>.from(result);
+    if (!_isNumber(invitation['id']) ||
+        !_isNumber(invitation['leaseId']) ||
+        invitation['invitationToken'] is! String ||
+        invitation['status'] is! String) {
+      throw const TanteApiException(
+        'The rent service returned an invalid lease invitation.',
+      );
+    }
+    return invitation;
+  }
+
+  Future<void> acceptTenantLeaseInvitation({
+    required String invitationToken,
+    required int userId,
+    required String token,
+  }) async {
+    await _request(
+      'POST',
+      '$rentApiBaseUrl/v1/lease-invitations/${Uri.encodeComponent(invitationToken)}/tenant/accept?userId=$userId',
+      token: token,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getTenantViewingBookings(
+    int requesterUserId,
+    String token,
+  ) async {
+    final result = await _request(
+      'GET',
+      '$rentApiBaseUrl/v1/viewings/bookings/by-requester/$requesterUserId',
+      token: token,
+    );
+    if (result is! List || result.any((booking) => booking is! Map)) {
+      throw const TanteApiException(
+        'The rent service returned invalid viewing bookings.',
+      );
+    }
+    return result.map((booking) {
+      final parsed = Map<String, dynamic>.from(booking as Map);
+      _validateViewingBooking(parsed);
+      return parsed;
+    }).toList();
   }
 
   Future<dynamic> _request(

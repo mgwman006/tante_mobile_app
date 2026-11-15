@@ -1555,6 +1555,112 @@ void main() {
     },
   );
 
+  test('tenant dashboard APIs follow Rent Manager contracts', () async {
+    final requests = <http.Request>[];
+    const invitationToken = '6b3f3c9b-4a2d-4c72-8b5a-45b4b1f26d78';
+    final invitation = {
+      'id': 8,
+      'leaseId': 15,
+      'firstName': 'Jordan',
+      'lastName': 'Smith',
+      'phoneNumber': '+255712345678',
+      'email': 'jordan@example.com',
+      'invitationToken': invitationToken,
+      'status': 'PENDING',
+      'expiresAt': '2030-02-01T10:00:00',
+    };
+    final booking = {
+      'id': 99,
+      'reference': 'VB-99',
+      'rentalProfileId': 7,
+      'unitId': 42,
+      'startTime': '2030-02-03T14:30:00',
+      'endTime': '2030-02-03T16:10:00',
+      'requesterUserId': 42,
+      'status': 'PENDING',
+      'serviceFee': 15000,
+      'paymentStatus': 'AWAITING_PAYMENT',
+    };
+    final api = TanteApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        final path = request.url.path;
+        final data = path.contains('/lease-invitations/phone/')
+            ? [invitation]
+            : path.endsWith('/tenant/accept')
+            ? null
+            : path.contains('/lease-invitations/$invitationToken')
+            ? invitation
+            : path.endsWith('/viewings/bookings/by-requester/42')
+            ? [booking]
+            : path.endsWith('/payment-blocks/tenant/12/record-payment')
+            ? 'Payment recorded successfully'
+            : throw StateError('Unexpected URL ${request.url}');
+        return http.Response(jsonEncode({'success': true, 'data': data}), 200);
+      }),
+    );
+
+    final invitations = await api.getTenantInvitations(
+      '+255712345678',
+      'test-token',
+    );
+    final fetchedInvitation = await api.getTenantInvitation(
+      invitationToken,
+      'test-token',
+    );
+    await api.acceptTenantLeaseInvitation(
+      invitationToken: invitationToken,
+      userId: 42,
+      token: 'test-token',
+    );
+    final bookings = await api.getTenantViewingBookings(42, 'test-token');
+    final confirmation = await api.recordTenantLeasePayment(
+      tenantId: 12,
+      paymentBlockId: 5,
+      amount: 850000,
+      currency: 'TZS',
+      payerUserId: 42,
+      method: 'CASH',
+      reference: 'RCPT-5',
+      note: 'March rent',
+      token: 'test-token',
+    );
+
+    expect(invitations.single['id'], 8);
+    expect(fetchedInvitation['leaseId'], 15);
+    expect(bookings.single['reference'], 'VB-99');
+    expect(confirmation, 'Payment recorded successfully');
+    expect(requests.first.method, 'GET');
+    expect(
+      requests.first.url.path.startsWith(
+        '/rent-manager/v1/lease-invitations/phone/',
+      ),
+      isTrue,
+    );
+    expect(
+      requests
+          .skip(1)
+          .map((request) => '${request.method} ${request.url.path}'),
+      [
+        'GET /rent-manager/v1/lease-invitations/$invitationToken',
+        'POST /rent-manager/v1/lease-invitations/$invitationToken/tenant/accept',
+        'GET /rent-manager/v1/viewings/bookings/by-requester/42',
+        'POST /rent-manager/v1/payment-blocks/tenant/12/record-payment',
+      ],
+    );
+    expect(requests.first.url.path.endsWith('255712345678'), isTrue);
+    expect(requests[2].url.queryParameters['userId'], '42');
+    expect(jsonDecode(requests.last.body), {
+      'paymentBlockId': 5,
+      'amount': 850000,
+      'currency': 'TZS',
+      'payerUserId': 42,
+      'method': 'CASH',
+      'reference': 'RCPT-5',
+      'note': 'March rent',
+    });
+  });
+
   testWidgets('landlord viewing bookings enforce payment and record outcomes', (
     tester,
   ) async {
@@ -1905,6 +2011,168 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Your rental information, all together.'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tenant lease list filters ended leases and opens details', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi()
+      ..tenantLeases = [
+        {'id': 15, 'referenceNumber': 'ACTIVE-15', 'status': 'ACTIVE'},
+        {'id': 16, 'referenceNumber': 'ENDED-16', 'status': 'ENDED'},
+      ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TenantHomePage(
+          session: const AuthSession(
+            phoneNumber: '+255712345678',
+            token: 'test-token',
+            userId: 42,
+            role: 'Tenant',
+          ),
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Leases').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Lease ACTIVE-15'), findsOneWidget);
+    expect(find.text('Lease ENDED-16'), findsNothing);
+    await tester.tap(find.text('Ended'));
+    await tester.pumpAndSettle();
+    expect(find.text('Lease ENDED-16'), findsOneWidget);
+    expect(find.text('Lease ACTIVE-15'), findsNothing);
+
+    await tester.tap(find.text('Lease ENDED-16'));
+    await tester.pumpAndSettle();
+    expect(find.text('Lease LEASE-16'), findsWidgets);
+  });
+
+  testWidgets('tenant can inspect and accept a lease invitation', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi()
+      ..tenantInvitations = [
+        {
+          'id': 8,
+          'leaseId': 15,
+          'invitationToken': 'invitation-15',
+          'status': 'PENDING',
+        },
+      ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TenantHomePage(
+          session: const AuthSession(
+            phoneNumber: '+255712345678',
+            token: 'test-token',
+            userId: 42,
+            role: 'Tenant',
+          ),
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lease invitations'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lease 15'));
+    await tester.pumpAndSettle();
+    expect(find.text('Accept invitation'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Accept invitation'));
+    await tester.tap(find.text('Accept invitation'));
+    await tester.pumpAndSettle();
+    expect(api.acceptedInvitationToken, 'invitation-15');
+  });
+
+  testWidgets('tenant dashboard opens viewing history with colored statuses', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi()
+      ..tenantViewingBookings = [
+        _fakeViewingBooking(
+          id: 99,
+          status: 'CONFIRMED',
+          paymentStatus: 'AWAITING_PAYMENT',
+        ),
+      ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TenantHomePage(
+          session: const AuthSession(
+            phoneNumber: '+255712345678',
+            token: 'test-token',
+            userId: 42,
+            role: 'Tenant',
+          ),
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Viewing bookings').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('VB-99'), findsOneWidget);
+    expect(find.text('Confirmed'), findsOneWidget);
+    expect(find.text('Awaiting Payment'), findsOneWidget);
+  });
+
+  testWidgets('tenant lease details load payment schedule and record payment', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi()
+      ..tenantLeases = [
+        {'id': 15, 'referenceNumber': 'LEASE-15', 'status': 'ACTIVE'},
+      ]
+      ..paymentBlocks = [
+        {
+          'id': 5,
+          'amount': 850000,
+          'paidAmount': 0,
+          'outstandingAmount': 850000,
+          'startDate': '2026-01-01',
+          'endDate': '2026-01-31',
+          'dueDate': '2026-01-01',
+          'status': 'UNPAID',
+        },
+      ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TenantHomePage(
+          session: const AuthSession(
+            phoneNumber: '+255712345678',
+            token: 'test-token',
+            userId: 42,
+            role: 'Tenant',
+          ),
+          api: api,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('My rent').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lease LEASE-15'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -800));
+    await tester.pumpAndSettle();
+    expect(find.text('Payment schedule'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Record payment'));
+    await tester.tap(find.text('Record payment'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'RCPT-5');
+    await tester.tap(find.text('Submit payment'));
+    await tester.pumpAndSettle();
+
+    expect(api.recordedTenantPaymentBlockId, 5);
+    expect(api.recordedTenantPaymentAmount, 850000);
+    expect(api.recordedTenantPaymentUserId, 42);
+    expect(api.recordedTenantPaymentReference, 'RCPT-5');
   });
 
   testWidgets('main-page sign-in continues to tenant home', (tester) async {
@@ -2309,6 +2577,14 @@ class _FakeTanteApi extends TanteApi {
   String? updatedLeaseEndDate;
   List<Map<String, dynamic>> paymentBlocks = const [];
   int paymentSummaryRequests = 0;
+  List<Map<String, dynamic>> tenantLeases = const [];
+  List<Map<String, dynamic>> tenantInvitations = const [];
+  List<Map<String, dynamic>> tenantViewingBookings = const [];
+  String? acceptedInvitationToken;
+  int? recordedTenantPaymentBlockId;
+  double? recordedTenantPaymentAmount;
+  int? recordedTenantPaymentUserId;
+  String? recordedTenantPaymentReference;
 
   _FakeTanteApi()
     : super(
@@ -2514,7 +2790,64 @@ class _FakeTanteApi extends TanteApi {
     int tenantId,
     String token,
   ) async {
-    return const [];
+    return tenantLeases;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getTenantInvitations(
+    String phoneNumber,
+    String token,
+  ) async {
+    return tenantInvitations;
+  }
+
+  @override
+  Future<Map<String, dynamic>> getTenantInvitation(
+    String invitationToken,
+    String token,
+  ) async {
+    return {
+      'id': 8,
+      'leaseId': 15,
+      'invitationToken': invitationToken,
+      'status': 'PENDING',
+    };
+  }
+
+  @override
+  Future<void> acceptTenantLeaseInvitation({
+    required String invitationToken,
+    required int userId,
+    required String token,
+  }) async {
+    acceptedInvitationToken = invitationToken;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getTenantViewingBookings(
+    int requesterUserId,
+    String token,
+  ) async {
+    return tenantViewingBookings;
+  }
+
+  @override
+  Future<String> recordTenantLeasePayment({
+    required int tenantId,
+    required int paymentBlockId,
+    required double amount,
+    required String currency,
+    required int payerUserId,
+    required String method,
+    required String token,
+    String? reference,
+    String? note,
+  }) async {
+    recordedTenantPaymentBlockId = paymentBlockId;
+    recordedTenantPaymentAmount = amount;
+    recordedTenantPaymentUserId = payerUserId;
+    recordedTenantPaymentReference = reference;
+    return 'Payment recorded successfully';
   }
 
   @override
