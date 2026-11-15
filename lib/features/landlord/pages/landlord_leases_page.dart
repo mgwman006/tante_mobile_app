@@ -20,7 +20,7 @@ class LandlordLeasesPage extends StatelessWidget {
             ]
           : leases
                 .map(
-                  (lease) => LandlordDataCard(
+                  (lease) => LandlordInfoCard(
                     icon: Icons.description_outlined,
                     title:
                         'Lease ${lease['referenceNumber'] ?? lease['id'] ?? ''}',

@@ -86,9 +86,63 @@ class LandlordMetricCard extends StatelessWidget {
   }
 }
 
-class LandlordDataCard extends StatelessWidget {
-  const LandlordDataCard({
+class PropertyDataCard extends StatelessWidget {
+  const PropertyDataCard({
     super.key,
+    required this.icon,
+    required this.title,
+    required this.type,
+    required this.address,
+  });
+
+  final IconData icon;
+  final String title;
+  final String type;
+  final String address;
+
+  @override
+  Widget build(BuildContext context) {
+     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: const Color(0xFFE7F8E7),
+          child: Icon(icon, color: const Color(0xFF19A75C)),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(address),
+        isThreeLine: true,
+        // trailing: Text(type, style: const TextStyle(fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+  
+}
+
+class LandlordInfoCard extends StatelessWidget {
+  const LandlordInfoCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.detail,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SummaryDataCard(
+      icon: icon,
+      title: title,
+      detail: detail,
+    );
+  }
+}
+
+class _SummaryDataCard extends StatelessWidget {
+  const _SummaryDataCard({
     required this.icon,
     required this.title,
     required this.detail,

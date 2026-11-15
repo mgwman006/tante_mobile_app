@@ -29,28 +29,39 @@ class LandlordPropertiesPage extends StatelessWidget {
               final readableAddress = rawAddress is String
                   ? rawAddress
                   : [
-                      address['houseNumber'],
-                      address['streetName'],
-                      address['ward'],
-                      address['city'],
-                      address['region'],
-                      address['country'],
-                    ]
-                    .whereType<Object>()
-                    .map((part) => part.toString().trim())
-                    .where((part) => part.isNotEmpty)
-                    .join(', ');
+                          address['houseNumber'],
+                          address['streetName'],
+                          address['ward'],
+                          address['city'],
+                          address['region'],
+                          address['country'],
+                        ]
+                        .whereType<Object>()
+                        .map((part) => part.toString().trim())
+                        .where((part) => part.isNotEmpty)
+                        .join(', ');
 
-              final buildings = property['buildings'] is List
-                  ? (property['buildings'] as List).length
-                  : 0;
-              return LandlordDataCard(
+              
+              final propertyType = _formatPropertyType(property['type']);
+              return PropertyDataCard(
                 icon: Icons.apartment_rounded,
                 title: property['name']?.toString() ?? 'Property',
-                detail:
-                    '$readableAddress\n${property['type'] ?? 'Property'} · $buildings building${buildings == 1 ? '' : 's'}',
+                type: propertyType,
+                address: readableAddress,
               );
             }).toList(),
     );
   }
+}
+
+String _formatPropertyType(Object? value) {
+  final type = value?.toString().trim() ?? '';
+  if (type.isEmpty) return 'Property';
+  return type
+      .split('_')
+      .where((word) => word.isNotEmpty)
+      .map(
+        (word) => '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+      )
+      .join(' ');
 }

@@ -19,7 +19,7 @@ void main() {
           properties: [
             {
               'name': 'Green Court',
-              'type': 'RESIDENTIAL',
+              'type': 'RESIDENTIAL_PROPERTY',
               'location': {
                 'address': {
                   'houseNumber': 14,
@@ -39,7 +39,7 @@ void main() {
 
     expect(
       find.text(
-        '14, Mlimani Road, Mlimani, Dar es Salaam, Dar es Salaam, Tanzania\nRESIDENTIAL · 0 buildings',
+        '14, Mlimani Road, Mlimani, Dar es Salaam, Dar es Salaam, Tanzania\nResidential Property · 0 buildings',
       ),
       findsOneWidget,
     );

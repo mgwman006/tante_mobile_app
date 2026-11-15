@@ -25,18 +25,18 @@ class LandlordAccountPage extends StatelessWidget {
       title: 'Account',
       subtitle: 'Your Tante landlord or agent account.',
       children: [
-        LandlordDataCard(
+        LandlordInfoCard(
           icon: Icons.business_outlined,
           title: name,
           detail: '${rentalProfileTypeLabel(profile['type'])} rental profile',
         ),
-        LandlordDataCard(
+        LandlordInfoCard(
           icon: Icons.phone_outlined,
           title: 'Phone number',
           detail: profile['phoneNumber']?.toString() ?? fallbackPhoneNumber,
         ),
         if (email.isNotEmpty)
-          LandlordDataCard(
+          LandlordInfoCard(
             icon: Icons.email_outlined,
             title: 'Email',
             detail: email,
