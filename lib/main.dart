@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:tante/home.dart';
+import 'package:tante/login.dart';
+
 class TanteColors {
   static const navy = Color(0xFF0C2E47);
   static const text = Color(0xFF102F4C);
@@ -70,6 +73,3 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
-import 'package:tante/home.dart';
-import 'package:tante/login.dart';

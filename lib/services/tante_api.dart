@@ -21,6 +21,7 @@ class AuthSession {
     required this.userId,
     required this.role,
     this.email,
+    this.memberships = const [],
   });
 
   final String phoneNumber;
@@ -28,6 +29,7 @@ class AuthSession {
   final int userId;
   final String role;
   final String? email;
+  final List<Map<String, dynamic>> memberships;
 }
 
 class TanteApi {
@@ -65,32 +67,62 @@ class TanteApi {
       userId: userId,
       role: role,
       email: _string(user['email']).isEmpty ? null : _string(user['email']),
+      memberships: _maps(user['memberships']),
     );
   }
 
   Future<List<Map<String, dynamic>>> getRentalProfiles(AuthSession session) async {
-    final user = await _request(
-      'GET',
-      '$authApiBaseUrl/v1/users/${Uri.encodeComponent(session.phoneNumber)}',
-      token: session.token,
-    );
-    final memberships = _maps(user['memberships']);
-    final profiles = <Map<String, dynamic>>[];
-    for (final membership in memberships) {
+    // Organization ID 0 is used by the web app to retrieve individual profiles.
+    final organizationIds = <int>{0};
+    for (final membership in session.memberships) {
       final organizationId = _int(membership['organizationId']);
-      if (organizationId == null) continue;
+      if (organizationId != null && organizationId > 0) {
+        organizationIds.add(organizationId);
+      }
+    }
+
+    final profilesById = <String, Map<String, dynamic>>{};
+    for (final organizationId in organizationIds) {
       try {
         final result = await _request(
           'GET',
           '$rentApiBaseUrl/v1/rentalprofiles/${session.userId}/$organizationId',
           token: session.token,
         );
-        profiles.addAll(_maps(result));
+        for (final profile in _maps(result)) {
+          final id = _string(profile['id']);
+          if (id.isNotEmpty) profilesById[id] = profile;
+        }
       } on TanteApiException {
-        // A user may have memberships that are not rental-profile memberships.
+        // A membership may not have a rental profile. Continue to load the others.
       }
     }
-    return profiles;
+    return profilesById.values.toList();
+  }
+
+  Future<Map<String, dynamic>> createRentalProfile({
+    required AuthSession session,
+    required String name,
+    required String phoneNumber,
+    required String type,
+    String? email,
+    int? organizationId,
+  }) async {
+    final result = await _request(
+      'POST',
+      '$rentApiBaseUrl/v1/rentalprofiles',
+      token: session.token,
+      body: {
+        'name': name.trim(),
+        'phoneNumber': phoneNumber.trim(),
+        'email': email?.trim().isEmpty ?? true ? null : email!.trim(),
+        'type': type,
+        'userId': session.userId,
+        if (organizationId != null) 'organizationId': organizationId,
+      },
+    );
+    if (result is Map) return Map<String, dynamic>.from(result);
+    throw const TanteApiException('The server did not return the new rental profile.');
   }
 
   Future<List<Map<String, dynamic>>> getProperties(int rentalProfileId, String token) async {
