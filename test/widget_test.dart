@@ -73,6 +73,86 @@ void main() {
     expect(profile['name'], 'Tante Rentals');
   });
 
+  test('viewing booking API posts the authenticated booking payload', () async {
+    late http.Request request;
+    final api = TanteApi(
+      client: MockClient((incoming) async {
+        request = incoming;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'id': 8, 'reference': 'VB-test', 'status': 'PENDING'},
+          }),
+          201,
+        );
+      }),
+    );
+    final startTime = DateTime(2030, 2, 3, 14, 30);
+
+    final booking = await api.createViewingBooking(
+      rentalProfileId: 7,
+      unitId: 42,
+      startTime: startTime,
+      requesterUserAccountId: 12,
+      serviceFee: 15000,
+      token: 'test-token',
+      notes: 'Please call on arrival.',
+    );
+    final body = jsonDecode(request.body) as Map<String, dynamic>;
+
+    expect(request.method, 'POST');
+    expect(request.url.path, '/rent-manager/v1/viewings/bookings');
+    expect(request.headers['Authorization'], 'Bearer test-token');
+    expect(body, {
+      'rentalProfileId': 7,
+      'unitId': 42,
+      'startTime': '2030-02-03T14:30:00',
+      'endTime': '2030-02-03T16:10:00',
+      'requesterUserAccountId': 12,
+      'serviceFee': 15000,
+      'notes': 'Please call on arrival.',
+    });
+    expect(booking['reference'], 'VB-test');
+  });
+
+  test(
+    'viewing booking API shows business exception details from the backend',
+    () async {
+      final api = TanteApi(
+        client: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'success': false,
+              'message': 'BUSINESS_EXCEPTION',
+              'data':
+                  'No agent is available for the requested time because of an overlapping active viewing.',
+              'statusCode': 400,
+            }),
+            400,
+          ),
+        ),
+      );
+
+      await expectLater(
+        api.createViewingBooking(
+          rentalProfileId: 7,
+          unitId: 42,
+          startTime: DateTime(2030, 2, 3, 14, 30),
+          requesterUserAccountId: 12,
+          serviceFee: 15000,
+          token: 'test-token',
+        ),
+        throwsA(
+          isA<TanteApiException>().having(
+            (error) => error.message,
+            'message',
+            'No agent is available for the requested time because of an overlapping active viewing.',
+          ),
+        ),
+      );
+    },
+  );
+
   test(
     'listed-units API includes selected filters and parses the result',
     () async {
@@ -333,43 +413,101 @@ void main() {
     expect(find.text('Agency'), findsOneWidget);
   });
 
-  testWidgets('listing sign-in returns to details and loads agency profile', (
+  testWidgets('booking sign-in submits a viewing request', (tester) async {
+    final api = _FakeTanteApi();
+    await _openBookingRequest(tester, api);
+    await _submitViewingRequest(tester);
+
+    expect(api.requestedUnitId, 42);
+    expect(api.requestedRequesterId, 42);
+    expect(api.requestedServiceFee, 15000);
+    expect(api.requestedStartTime, isNotNull);
+    expect(find.textContaining('Viewing request sent'), findsOneWidget);
+  });
+
+  testWidgets('booking failure shows a centered message with Cancel', (
     tester,
   ) async {
-    await tester.pumpWidget(MyApp(api: _FakeTanteApi()));
+    final api = _FakeTanteApi()
+      ..bookingFailureMessage = 'No agent is available at that time.';
+    await _openBookingRequest(tester, api);
+    await _submitViewingRequest(tester);
 
-    await tester.ensureVisible(find.text('Search homes'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Search homes'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Green Court | Unit A2'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Green Court | Unit A2'));
-    await tester.pumpAndSettle();
+    expect(find.text('Viewing request failed'), findsOneWidget);
+    expect(find.text('No agent is available at that time.'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
 
-    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Sign in'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign in'));
+    await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Log in as Tenant'), findsOneWidget);
-    await tester.enterText(
-      find.bySemanticsLabel('Tanzanian phone number'),
-      '+255712345678',
-    );
-    await tester.enterText(find.bySemanticsLabel('Password'), 'password');
-    await tester.tap(find.text('Log in as Tenant'));
-    await tester.pumpAndSettle();
-
+    expect(find.text('Viewing request failed'), findsNothing);
     expect(find.text('Home details'), findsOneWidget);
-    expect(find.text('Tante Rentals'), findsOneWidget);
-    expect(find.text('TSh 15,000'), findsOneWidget);
   });
 }
 
+Future<void> _openBookingRequest(WidgetTester tester, _FakeTanteApi api) async {
+  await tester.pumpWidget(MyApp(api: api));
+  await tester.ensureVisible(find.text('Search homes'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Search homes'));
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.text('Green Court | Unit A2'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Green Court | Unit A2'));
+  await tester.pumpAndSettle();
+
+  await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.text('Sign in to schedule viewing'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Sign in to schedule viewing'));
+  await tester.pumpAndSettle();
+
+  await tester.enterText(
+    find.bySemanticsLabel('Tanzanian phone number'),
+    '+255712345678',
+  );
+  await tester.enterText(find.bySemanticsLabel('Password'), 'password');
+  await tester.tap(find.text('Log in as Tenant'));
+  await tester.pumpAndSettle();
+
+  expect(find.text('Request a viewing'), findsOneWidget);
+  expect(find.text('Tante Rentals'), findsOneWidget);
+  expect(find.text('Viewing fee: TSh 15,000'), findsOneWidget);
+}
+
+Future<void> _submitViewingRequest(WidgetTester tester) async {
+  await tester.tap(find.text('Choose date and time'));
+  await tester.pumpAndSettle();
+
+  final today = DateTime.now();
+  final viewingDate = today.add(const Duration(days: 2));
+  if (viewingDate.month != today.month || viewingDate.year != today.year) {
+    await tester.tap(find.byTooltip('Next month'));
+    await tester.pumpAndSettle();
+  }
+  await tester.tap(
+    find.descendant(
+      of: find.byType(CalendarDatePicker),
+      matching: find.text('${viewingDate.day}'),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('OK'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('OK'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Send request'));
+  await tester.pumpAndSettle();
+}
+
 class _FakeTanteApi extends TanteApi {
+  int? requestedUnitId;
+  int? requestedRequesterId;
+  double? requestedServiceFee;
+  DateTime? requestedStartTime;
+  String? bookingFailureMessage;
+
   _FakeTanteApi()
     : super(
         client: MockClient(
@@ -481,5 +619,25 @@ class _FakeTanteApi extends TanteApi {
       'viewingServiceFee': 15000,
       'type': 'BUSINESS',
     };
+  }
+
+  @override
+  Future<Map<String, dynamic>> createViewingBooking({
+    required int rentalProfileId,
+    required int unitId,
+    required DateTime startTime,
+    required int requesterUserAccountId,
+    required double serviceFee,
+    required String token,
+    String? notes,
+  }) async {
+    if (bookingFailureMessage != null) {
+      throw TanteApiException(bookingFailureMessage!);
+    }
+    requestedUnitId = unitId;
+    requestedRequesterId = requesterUserAccountId;
+    requestedServiceFee = serviceFee;
+    requestedStartTime = startTime;
+    return {'id': 8, 'reference': 'VB-test'};
   }
 }

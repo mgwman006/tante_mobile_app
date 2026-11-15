@@ -352,6 +352,38 @@ class TanteApi {
     return Map<String, dynamic>.from(result);
   }
 
+  Future<Map<String, dynamic>> createViewingBooking({
+    required int rentalProfileId,
+    required int unitId,
+    required DateTime startTime,
+    required int requesterUserAccountId,
+    required double serviceFee,
+    required String token,
+    String? notes,
+  }) async {
+    final endTime = startTime.add(const Duration(minutes: 100));
+    final result = await _request(
+      'POST',
+      '$rentApiBaseUrl/v1/viewings/bookings',
+      token: token,
+      body: {
+        'rentalProfileId': rentalProfileId,
+        'unitId': unitId,
+        'startTime': _formatLocalDateTime(startTime),
+        'endTime': _formatLocalDateTime(endTime),
+        'requesterUserAccountId': requesterUserAccountId,
+        'serviceFee': serviceFee,
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      },
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The rent service returned an invalid viewing booking.',
+      );
+    }
+    return Map<String, dynamic>.from(result);
+  }
+
   Future<Map<String, dynamic>> createRentalProfile({
     required AuthSession session,
     required String name,
@@ -470,10 +502,12 @@ class TanteApi {
         );
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        final message = decoded is Map ? _string(decoded['message']) : '';
+        final message = decoded is Map
+            ? _apiErrorMessage(Map<String, dynamic>.from(decoded))
+            : '';
         if (response.statusCode == 401 || response.statusCode == 403) {
           throw TanteApiException(
-            message.isEmpty
+            message.isEmpty || message == 'UNAUTHORIZED'
                 ? 'Sign-in failed. Check your phone number and password.'
                 : message,
           );
@@ -487,10 +521,9 @@ class TanteApi {
       if (decoded is Map &&
           decoded.containsKey('success') &&
           decoded['success'] == false) {
+        final message = _apiErrorMessage(Map<String, dynamic>.from(decoded));
         throw TanteApiException(
-          _string(decoded['message']).isEmpty
-              ? 'The request could not be completed.'
-              : _string(decoded['message']),
+          message.isEmpty ? 'The request could not be completed.' : message,
         );
       }
       if (decoded is Map && decoded.containsKey('data')) return decoded['data'];
@@ -513,6 +546,40 @@ class TanteApi {
   }
 
   static String _string(dynamic value) => value?.toString() ?? '';
+
+  static String _apiErrorMessage(Map<String, dynamic> response) {
+    final message = _string(response['message']).trim();
+    final details = _formatErrorDetails(response['data']);
+    if (details.isNotEmpty && _isMachineReadableError(message)) {
+      return details;
+    }
+    if (message.isNotEmpty) return message;
+    return details;
+  }
+
+  static bool _isMachineReadableError(String message) {
+    return RegExp(r'^[A-Z][A-Z0-9_]*$').hasMatch(message);
+  }
+
+  static String _formatErrorDetails(Object? value) {
+    if (value is String) return value.trim();
+    if (value is List) {
+      return value
+          .map(_formatErrorDetails)
+          .where((detail) => detail.isNotEmpty)
+          .join('; ');
+    }
+    if (value is Map) {
+      return value.entries
+          .map((entry) {
+            final detail = _formatErrorDetails(entry.value);
+            return detail.isEmpty ? '' : '${entry.key}: $detail';
+          })
+          .where((detail) => detail.isNotEmpty)
+          .join('; ');
+    }
+    return '';
+  }
 
   static int? _int(dynamic value) =>
       value is num ? value.toInt() : int.tryParse(_string(value));
@@ -552,6 +619,12 @@ String _requiredString(Map<String, dynamic> json, String key) {
     );
   }
   return value;
+}
+
+String _formatLocalDateTime(DateTime value) {
+  String twoDigits(int component) => component.toString().padLeft(2, '0');
+  return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)}'
+      'T${twoDigits(value.hour)}:${twoDigits(value.minute)}:${twoDigits(value.second)}';
 }
 
 Map<String, dynamic> _requiredMap(Map<String, dynamic> json, String key) {

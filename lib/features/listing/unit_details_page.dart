@@ -19,6 +19,7 @@ class _UnitDetailsPageState extends State<UnitDetailsPage> {
   AuthSession? _session;
   Map<String, dynamic>? _rentalProfile;
   bool _profileLoading = false;
+  bool _bookingSubmitting = false;
   String? _profileError;
   int _currentImage = 0;
 
@@ -36,7 +37,10 @@ class _UnitDetailsPageState extends State<UnitDetailsPage> {
     });
   }
 
-  Future<void> _signInToListing(RentalUnitDetails unit) async {
+  Future<void> _signInToListing(
+    RentalUnitDetails unit, {
+    bool continueToBooking = false,
+  }) async {
     final session = await Navigator.pushNamed<AuthSession>(
       context,
       '/login',
@@ -52,6 +56,21 @@ class _UnitDetailsPageState extends State<UnitDetailsPage> {
       _profileError = null;
       _profileLoading = true;
     });
+    await _loadRentalProfile(unit, session);
+    if (continueToBooking && mounted && _rentalProfile != null) {
+      await _showViewingRequestDialog(unit);
+    }
+  }
+
+  Future<void> _loadRentalProfile(
+    RentalUnitDetails unit,
+    AuthSession session,
+  ) async {
+    setState(() {
+      _rentalProfile = null;
+      _profileError = null;
+      _profileLoading = true;
+    });
     try {
       final profile = await _api.getRentalProfileDetails(
         unit.rentalProfileId,
@@ -63,6 +82,201 @@ class _UnitDetailsPageState extends State<UnitDetailsPage> {
     } finally {
       if (mounted) setState(() => _profileLoading = false);
     }
+  }
+
+  Future<void> _scheduleViewing(RentalUnitDetails unit) async {
+    if (_session == null) {
+      await _signInToListing(unit, continueToBooking: true);
+      return;
+    }
+    if (_rentalProfile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_profileError ?? 'Agency details are still loading.'),
+        ),
+      );
+      return;
+    }
+    await _showViewingRequestDialog(unit);
+  }
+
+  Future<void> _showViewingRequestDialog(RentalUnitDetails unit) async {
+    final serviceFee = _viewingServiceFee;
+    if (serviceFee == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The viewing fee is unavailable. Please try again later.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    DateTime? startTime;
+    var notes = '';
+    final formKey = GlobalKey<FormState>();
+    final shouldSubmit = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Request a viewing'),
+          content: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Request a time to see Unit ${unit.unitNumber}.'),
+                  const SizedBox(height: 8),
+                  Text('Viewing fee: ${_formatRent(serviceFee)}'),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final now = DateTime.now();
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: startTime ?? now,
+                        firstDate: DateTime(now.year, now.month, now.day),
+                        lastDate: DateTime(now.year + 2),
+                      );
+                      if (date == null || !context.mounted) return;
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime: startTime == null
+                            ? const TimeOfDay(hour: 10, minute: 0)
+                            : TimeOfDay.fromDateTime(startTime!),
+                      );
+                      if (time == null) return;
+                      setDialogState(() {
+                        startTime = DateTime(
+                          date.year,
+                          date.month,
+                          date.day,
+                          time.hour,
+                          time.minute,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.calendar_month_outlined),
+                    label: Text(
+                      startTime == null
+                          ? 'Choose date and time'
+                          : _formatDateTime(startTime!),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    maxLength: 500,
+                    maxLines: 3,
+                    onChanged: (value) => notes = value,
+                    decoration: const InputDecoration(
+                      labelText: 'Note to the property manager (optional)',
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _bookingSubmitting
+                  ? null
+                  : () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: _bookingSubmitting
+                  ? null
+                  : () {
+                      if (startTime == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Choose a date and time.'),
+                          ),
+                        );
+                        return;
+                      }
+                      if (startTime!.isBefore(DateTime.now())) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Choose a future date and time.'),
+                          ),
+                        );
+                        return;
+                      }
+                      if (formKey.currentState!.validate()) {
+                        Navigator.pop(dialogContext, true);
+                      }
+                    },
+              child: const Text('Send request'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (shouldSubmit != true || startTime == null || !mounted) return;
+
+    final session = _session;
+    if (session == null) return;
+    setState(() => _bookingSubmitting = true);
+    try {
+      final booking = await _api.createViewingBooking(
+        rentalProfileId: unit.rentalProfileId,
+        unitId: unit.id,
+        startTime: startTime!,
+        requesterUserAccountId: session.userId,
+        serviceFee: serviceFee,
+        token: session.token,
+        notes: notes,
+      );
+      if (!mounted) return;
+      final reference = booking['reference']?.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            reference == null || reference.isEmpty
+                ? 'Viewing request sent. The property manager will follow up.'
+                : 'Viewing request sent. Reference: $reference',
+          ),
+        ),
+      );
+    } on TanteApiException catch (error) {
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            icon: const Icon(Icons.error_outline, color: Colors.red),
+            title: const Text('Viewing request failed'),
+            content: SelectableText(error.message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bookingSubmitting = false);
+    }
+  }
+
+  double? get _viewingServiceFee {
+    final value = _rentalProfile?['viewingServiceFee'];
+    if (value is num) return value.toDouble();
+    return value == null ? null : double.tryParse(value.toString());
+  }
+
+  String _formatDateTime(DateTime value) {
+    final date = MaterialLocalizations.of(context).formatMediumDate(value);
+    final time = MaterialLocalizations.of(
+      context,
+    ).formatTimeOfDay(TimeOfDay.fromDateTime(value));
+    return '$date at $time';
   }
 
   @override
@@ -298,8 +512,10 @@ class _UnitDetailsPageState extends State<UnitDetailsPage> {
                     style: const TextStyle(color: Colors.red),
                   ),
                   TextButton(
-                    onPressed: () => _signInToListing(unit),
-                    child: const Text('Sign in again'),
+                    onPressed: _session == null
+                        ? () => _signInToListing(unit)
+                        : () => _loadRentalProfile(unit, _session!),
+                    child: const Text('Try loading agency details again'),
                   ),
                 ] else if (_rentalProfile != null) ...[
                   _detailRow(
@@ -317,16 +533,43 @@ class _UnitDetailsPageState extends State<UnitDetailsPage> {
                     ),
                   if (_rentalProfile!['email'] != null)
                     _detailRow('Email', _rentalProfile!['email'].toString()),
-                  if (_rentalProfile!['viewingServiceFee'] is num)
-                    _detailRow(
-                      'Viewing fee',
-                      _formatRent(
-                        (_rentalProfile!['viewingServiceFee'] as num)
-                            .toDouble(),
-                      ),
-                      last: true,
-                    ),
+                  _detailRow(
+                    'Viewing fee',
+                    _viewingServiceFee == null
+                        ? 'Currently unavailable'
+                        : _formatRent(_viewingServiceFee!),
+                    last: true,
+                  ),
                 ],
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _bookingSubmitting
+                        ? null
+                        : () => _scheduleViewing(unit),
+                    icon: const Icon(Icons.event_available_outlined),
+                    label: Text(
+                      _bookingSubmitting
+                          ? 'Sending request...'
+                          : _session == null
+                          ? 'Sign in to schedule viewing'
+                          : 'Schedule a viewing',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Virtual viewing is coming soon.'),
+                      ),
+                    ),
+                    child: const Text('Virtual viewing'),
+                  ),
+                ),
               ],
             ),
           ),
