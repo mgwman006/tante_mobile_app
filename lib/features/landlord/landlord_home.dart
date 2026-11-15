@@ -43,10 +43,12 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
       });
       if (selected != null) await _loadProfileDashboard(selected);
     } on TanteApiException catch (error) {
-      if (mounted) setState(() {
-        _error = error.message;
-        _loadingProfiles = false;
-      });
+      if (mounted){
+        setState(() {
+                _error = error.message;
+                _loadingProfiles = false;
+              });
+      } 
     }
   }
 
@@ -69,10 +71,12 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
         _tab = 0;
       });
     } on TanteApiException catch (error) {
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _error = error.message;
         _loadingDashboard = false;
       });
+      }
     }
   }
 
@@ -437,7 +441,7 @@ class _CreateRentalProfileDialogState extends State<_CreateRentalProfileDialog> 
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _type,
+              initialValue: _type,
               decoration: const InputDecoration(labelText: 'Rental profile type', prefixIcon: Icon(Icons.category_outlined)),
               items: const [
                 DropdownMenuItem(value: 'INDIVIDUAL', child: Text('Individual')),
@@ -452,7 +456,7 @@ class _CreateRentalProfileDialogState extends State<_CreateRentalProfileDialog> 
               const SizedBox(height: 12),
               if (hasOrganizations)
                 DropdownButtonFormField<int>(
-                  value: _organizationId,
+                  initialValue: _organizationId,
                   isExpanded: true,
                   decoration: const InputDecoration(labelText: 'Organization', prefixIcon: Icon(Icons.groups_outlined)),
                   items: _organizations.map((membership) {

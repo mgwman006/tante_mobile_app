@@ -11,7 +11,6 @@ class TenantHomePage extends StatefulWidget {
 
 class _TenantHomePageState extends State<TenantHomePage> {
   final _api = TanteApi();
-  int? _tenantId;
   Map<String, dynamic>? _tenant;
   List<Map<String, dynamic>> _leases = const [];
   bool _loading = true;
@@ -33,7 +32,7 @@ class _TenantHomePageState extends State<TenantHomePage> {
           ? <Map<String, dynamic>>[]
           : await _api.getTenantLeases(tenantId, widget.session.token);
       if (!mounted) return;
-      setState(() { _tenant = tenant; _tenantId = tenantId; _leases = leases; _loading = false; });
+      setState(() { _tenant = tenant; _leases = leases; _loading = false; });
     } on TanteApiException catch (error) {
       if (mounted) setState(() { _error = error.message; _loading = false; });
     }

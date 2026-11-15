@@ -1,17 +1,35 @@
-# tante_mobile_app
+# Tante mobile app
 
-A new Flutter project.
+## Run locally
 
-## Getting Started
+Local API URLs default to `localhost` and the backend development ports:
 
-This project is a starting point for a Flutter application.
+| Service | Local URL |
+| --- | --- |
+| Auth manager | `http://localhost:8081/auth-manager` |
+| Property manager | `http://localhost:8082/property-manager` |
+| Rent manager | `http://localhost:8083/rent-manager` |
 
-A few resources to get you started if this is your first Flutter project:
+Start the backend services, then run the app on the iPhone simulator:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```sh
+flutter run -d "iPhone 17" --dart-define-from-file=config/local.json
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+`config/local.json` is optional when using these default URLs. On a physical
+phone, replace `localhost` with the development machine's LAN IP address.
+
+## Run or build with production APIs
+
+```sh
+flutter run -d "iPhone 17" --dart-define-from-file=config/production.json
+flutter build ipa --dart-define-from-file=config/production.json
+```
+
+Flutter reads these values at compile time. To use another environment, pass
+`--dart-define=AUTH_API_BASE_URL=...`, `--dart-define=PROPERTY_API_BASE_URL=...`,
+and `--dart-define=RENT_API_BASE_URL=...`, or use a JSON file with
+`--dart-define-from-file`.
+
+Do not put credentials or other secrets in dart defines; they are embedded in
+the application binary.

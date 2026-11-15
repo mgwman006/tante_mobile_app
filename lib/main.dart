@@ -1,22 +1,18 @@
 import 'package:flutter/material.dart';
 
 import 'package:tante/home.dart';
+import 'package:tante/landing_page.dart';
 import 'package:tante/login.dart';
-
-class TanteColors {
-  static const navy = Color(0xFF0C2E47);
-  static const text = Color(0xFF102F4C);
-  static const green = Color(0xFF19A75C);
-  static const lime = Color(0xFF80E77D);
-  static const gold = Color(0xFFFFC43D);
-  static const background = Color(0xFFF3F6FD);
-  static const mutedText = Color(0xFF3E5674);
-}
+import 'package:tante/listings_page.dart';
+import 'package:tante/services/tante_api.dart';
+import 'package:tante/tante_colors.dart';
 
 void main() => runApp(const MyApp());
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.api});
+
+  final TanteApi? api;
 
   @override
   Widget build(BuildContext context) {
@@ -47,28 +43,68 @@ class MyApp extends StatelessWidget {
             backgroundColor: TanteColors.green,
             foregroundColor: Colors.white,
             minimumSize: const Size(double.infinity, 52),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFD7DFED))),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFD7DFED))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: TanteColors.green, width: 1.5)),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0xFFD7DFED)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0xFFD7DFED)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: TanteColors.green, width: 1.5),
+          ),
         ),
         cardTheme: CardThemeData(
           color: Colors.white,
           elevation: 1,
           shadowColor: const Color(0x19193760),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
       ),
       initialRoute: '/',
-      routes: {
-        '/': (context) => const Login(),
-        '/home': (context) => const HomePage(),
-        '/login': (context) => const Login(),
+      onGenerateRoute: (settings) {
+        switch (settings.name) {
+          case '/':
+            return MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => const LandingPage(),
+            );
+          case '/home':
+            return MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => const HomePage(),
+            );
+          case '/login':
+            final role = settings.arguments == 'Tenant' ? 'Tenant' : 'Landlord';
+            return MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => Login(initialRole: role),
+            );
+          case '/listings':
+            final arguments = settings.arguments;
+            final filters = arguments is Map
+                ? arguments.map(
+                    (key, value) => MapEntry(key.toString(), value.toString()),
+                  )
+                : const <String, String>{};
+            return MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => ListingsPage(initialFilters: filters, api: api),
+            );
+        }
+        return null;
       },
     );
   }

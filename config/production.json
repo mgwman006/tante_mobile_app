@@ -1,0 +1,5 @@
+{
+  "AUTH_API_BASE_URL": "https://api.auth.tante.tz/auth-manager",
+  "PROPERTY_API_BASE_URL": "https://api.property-manager.tante.tz/property-manager",
+  "RENT_API_BASE_URL": "https://api.rent-manager.tante.tz/rent-manager"
+}
