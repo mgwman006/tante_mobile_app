@@ -6,6 +6,7 @@ import 'pages/landlord_account_page.dart';
 import 'pages/create_property_page.dart';
 import 'pages/landlord_leases_page.dart';
 import 'pages/landlord_overview_page.dart';
+import 'pages/property_details_page.dart';
 import 'pages/landlord_properties_page.dart';
 import 'pages/rental_profile_picker_page.dart';
 import 'rental_profile_utils.dart';
@@ -128,6 +129,29 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
     setState(() => _properties = [..._properties, property]);
   }
 
+  Future<void> _openProperty(Map<String, dynamic> property) async {
+    final propertyId = rentalProfileIdFrom(property['id']);
+    final rentalProfileId = rentalProfileIdFrom(_selectedProfile?['id']);
+    if (propertyId == null || rentalProfileId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('The property or rental profile is invalid.'),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => PropertyDetailsPage(
+          propertyId: propertyId,
+          rentalProfileId: rentalProfileId,
+          api: _api,
+          token: widget.session.token,
+        ),
+      ),
+    );
+  }
+
   Future<void> _switchProfile() async {
     final profile = await showRentalProfileSwitcher(
       context: context,
@@ -166,6 +190,7 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
       LandlordPropertiesPage(
         properties: _properties,
         onAddProperty: _addProperty,
+        onOpenProperty: _openProperty,
       ),
       LandlordLeasesPage(leases: _leases),
       LandlordAccountPage(

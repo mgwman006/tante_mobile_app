@@ -265,6 +265,97 @@ class TanteApi {
     return RentalUnitDetails.fromJson(Map<String, dynamic>.from(result));
   }
 
+  Future<Map<String, dynamic>> getPropertyDetails(
+    int propertyId,
+    String token,
+  ) async {
+    final result = await _request(
+      'GET',
+      '$propertyApiBaseUrl/v1/properties/$propertyId',
+      token: token,
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The property service returned an invalid property response.',
+      );
+    }
+    final property = Map<String, dynamic>.from(result);
+    final buildings = property['buildings'];
+    if (buildings != null) {
+      if (buildings is! List || buildings.any((building) => building is! Map)) {
+        throw const TanteApiException(
+          'The property service returned invalid building details.',
+        );
+      }
+      for (final building in buildings) {
+        final units = (building as Map)['units'];
+        if (units != null &&
+            (units is! List || units.any((unit) => unit is! Map))) {
+          throw const TanteApiException(
+            'The property service returned invalid unit details.',
+          );
+        }
+      }
+    }
+    return property;
+  }
+
+  Future<bool> advertiseUnit({
+    required int unitId,
+    required String token,
+  }) async {
+    final result = await _request(
+      'PATCH',
+      '$propertyApiBaseUrl/v1/units/$unitId/listing/status',
+      token: token,
+      body: {'isListed': true},
+    );
+    if (result is! bool) {
+      throw const TanteApiException(
+        'The property service returned an invalid unit listing status.',
+      );
+    }
+    return result;
+  }
+
+  Future<Map<String, dynamic>> createUnit({
+    required int buildingId,
+    required int rentalProfileId,
+    required String token,
+    required String unitNumber,
+    required int numberOfBedrooms,
+    required int numberOfBathrooms,
+    required int numberParkingSpots,
+    required double rentAmount,
+    required String type,
+    int? roomSize,
+    String? sizeUnit,
+  }) async {
+    final result = await _request(
+      'POST',
+      '$propertyApiBaseUrl/v1/units/building/$buildingId',
+      token: token,
+      body: {
+        'unitNumber': unitNumber.trim(),
+        'rentalProfileId': rentalProfileId,
+        'numberOfBedrooms': numberOfBedrooms,
+        'numberOfBathrooms': numberOfBathrooms,
+        'numberParkingSpots': numberParkingSpots,
+        'rentAmount': rentAmount,
+        'type': type,
+        'status': 'AVAILABLE',
+        'roomSize': ?roomSize,
+        'sizeUnit': ?_nonEmpty(sizeUnit),
+      },
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The property service returned an invalid created unit.',
+      );
+    }
+    return Map<String, dynamic>.from(result);
+  }
+
   Future<AuthSession> signIn({
     required String phoneNumber,
     required String password,
@@ -529,6 +620,10 @@ class TanteApi {
         'POST' =>
           await _client
               .post(uri, headers: headers, body: jsonEncode(body))
+              .timeout(const Duration(seconds: 20)),
+        'PATCH' =>
+          await _client
+              .patch(uri, headers: headers, body: jsonEncode(body))
               .timeout(const Duration(seconds: 20)),
         'GET' =>
           await _client

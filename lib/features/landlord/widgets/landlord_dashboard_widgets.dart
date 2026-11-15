@@ -93,12 +93,14 @@ class PropertyDataCard extends StatelessWidget {
     required this.title,
     required this.type,
     required this.address,
+    required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String type;
   final String address;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -118,6 +120,7 @@ class PropertyDataCard extends StatelessWidget {
           ],
         ),
         isThreeLine: true,
+        onTap: onTap,
       ),
     );
   }

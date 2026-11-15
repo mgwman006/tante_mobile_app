@@ -7,10 +7,12 @@ class LandlordPropertiesPage extends StatelessWidget {
     super.key,
     required this.properties,
     required this.onAddProperty,
+    required this.onOpenProperty,
   });
 
   final List<Map<String, dynamic>> properties;
   final VoidCallback onAddProperty;
+  final ValueChanged<Map<String, dynamic>> onOpenProperty;
 
   @override
   Widget build(BuildContext context) {
@@ -70,6 +72,7 @@ class LandlordPropertiesPage extends StatelessWidget {
                   title: property['name']?.toString() ?? 'Property',
                   type: propertyType,
                   address: readableAddress,
+                  onTap: () => onOpenProperty(property),
                 );
               }).toList(),
       ],

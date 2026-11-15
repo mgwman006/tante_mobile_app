@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tante/features/landlord/pages/create_property_page.dart';
 import 'package:tante/features/landlord/pages/landlord_properties_page.dart';
+import 'package:tante/features/landlord/pages/property_details_page.dart';
 import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/main.dart';
 import 'package:tante/services/tante_api.dart';
@@ -18,6 +19,7 @@ void main() {
       MaterialApp(
         home: LandlordPropertiesPage(
           onAddProperty: () {},
+          onOpenProperty: (_) {},
           properties: [
             {
               'name': 'Green Court',
@@ -58,6 +60,7 @@ void main() {
         home: LandlordPropertiesPage(
           properties: const [],
           onAddProperty: () => addTapped = true,
+          onOpenProperty: (_) {},
         ),
       ),
     );
@@ -68,6 +71,233 @@ void main() {
 
     expect(addTapped, isTrue);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('property card opens the selected property callback', (
+    tester,
+  ) async {
+    Map<String, dynamic>? openedProperty;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LandlordPropertiesPage(
+          properties: const [
+            {
+              'id': 5,
+              'name': 'Green Court',
+              'type': 'COMPOUND',
+              'location': <String, dynamic>{},
+            },
+          ],
+          onAddProperty: () {},
+          onOpenProperty: (property) => openedProperty = property,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Green Court'));
+
+    expect(openedProperty?['id'], 5);
+  });
+
+  test('property-details API parses nested buildings and units', () async {
+    late Uri requestUri;
+    late String authorization;
+    final api = TanteApi(
+      client: MockClient((request) async {
+        requestUri = request.url;
+        authorization = request.headers['Authorization'] ?? '';
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'id': 5,
+              'name': 'Green Court',
+              'type': 'COMPOUND',
+              'buildings': [
+                {
+                  'id': 8,
+                  'number': 1,
+                  'name': 'Block A',
+                  'numberOfFloors': 3,
+                  'units': [
+                    {
+                      'id': 12,
+                      'unitNumber': 'A1',
+                      'numberOfBedrooms': 2,
+                      'numberOfBathrooms': 1,
+                      'rentAmount': 850000,
+                      'type': 'FLAT',
+                      'isListed': false,
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          200,
+        );
+      }),
+    );
+
+    final property = await api.getPropertyDetails(5, 'test-token');
+
+    expect(requestUri.path, '/property-manager/v1/properties/5');
+    expect(authorization, startsWith('Bearer '));
+    expect((property['buildings'] as List).single['units'], hasLength(1));
+  });
+
+  test('unit listing status API advertises a unit', () async {
+    late http.Request request;
+    final api = TanteApi(
+      client: MockClient((incoming) async {
+        request = incoming;
+        return http.Response(jsonEncode({'success': true, 'data': true}), 200);
+      }),
+    );
+
+    final isListed = await api.advertiseUnit(unitId: 12, token: 'test-token');
+
+    expect(request.method, 'PATCH');
+    expect(request.url.path, '/property-manager/v1/units/12/listing/status');
+    expect(request.headers['Authorization'], 'Bearer test-token');
+    expect(jsonDecode(request.body), {'isListed': true});
+    expect(isListed, isTrue);
+  });
+
+  testWidgets('property details shows buildings and advertises a unit', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PropertyDetailsPage(
+          propertyId: 5,
+          rentalProfileId: 7,
+          api: api,
+          token: 'test-token',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Block A'), findsOneWidget);
+    expect(find.text('Unit A1'), findsOneWidget);
+    expect(find.textContaining('2 bed · 1 bath'), findsOneWidget);
+    expect(find.text('Advertise'), findsOneWidget);
+    await tester.tap(find.text('Advertise'));
+    await tester.pumpAndSettle();
+
+    expect(api.updatedUnitId, 12);
+    expect(api.updatedListingStatus, isTrue);
+    expect(find.text('Advertised'), findsOneWidget);
+    expect(find.text('Remove advert'), findsNothing);
+    expect(find.text('Advertise'), findsNothing);
+  });
+
+  testWidgets(
+    'property details retries a failed load without setState errors',
+    (tester) async {
+      final api = _FakeTanteApi()..failPropertyDetailsOnce = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PropertyDetailsPage(
+            propertyId: 5,
+            rentalProfileId: 7,
+            api: api,
+            token: 'test-token',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Temporary property details failure.'), findsOneWidget);
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+
+      expect(api.propertyDetailsRequests, 2);
+      expect(find.text('Block A'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  test('create unit API sends the backend contract', () async {
+    late http.Request request;
+    final api = TanteApi(
+      client: MockClient((incoming) async {
+        request = incoming;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'id': 12, 'unitNumber': 'A2', 'isListed': false},
+          }),
+          201,
+        );
+      }),
+    );
+
+    final unit = await api.createUnit(
+      buildingId: 8,
+      rentalProfileId: 7,
+      token: 'test-token',
+      unitNumber: ' A2 ',
+      numberOfBedrooms: 2,
+      numberOfBathrooms: 1,
+      numberParkingSpots: 1,
+      rentAmount: 850000,
+      type: 'FLAT',
+      roomSize: 90,
+      sizeUnit: 'SQM',
+    );
+    final body = jsonDecode(request.body) as Map<String, dynamic>;
+
+    expect(request.method, 'POST');
+    expect(request.url.path, '/property-manager/v1/units/building/8');
+    expect(request.headers['Authorization'], 'Bearer test-token');
+    expect(body, {
+      'unitNumber': 'A2',
+      'rentalProfileId': 7,
+      'numberOfBedrooms': 2,
+      'numberOfBathrooms': 1,
+      'numberParkingSpots': 1,
+      'rentAmount': 850000,
+      'type': 'FLAT',
+      'status': 'AVAILABLE',
+      'roomSize': 90,
+      'sizeUnit': 'SQM',
+    });
+    expect(unit['unitNumber'], 'A2');
+  });
+
+  testWidgets('building can add a unit and show it in the unit list', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PropertyDetailsPage(
+          propertyId: 5,
+          rentalProfileId: 7,
+          api: api,
+          token: 'test-token',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add unit'));
+    await tester.pumpAndSettle();
+
+    await _enterUnitText(tester, 'new-unit-number', 'A2');
+    await _enterUnitText(tester, 'new-unit-rent', '950000');
+    await tester.ensureVisible(find.text('Create unit'));
+    await tester.tap(find.text('Create unit'));
+    await tester.pumpAndSettle();
+
+    expect(api.createdBuildingId, 8);
+    expect(api.createdRentalProfileId, 7);
+    expect(api.createdUnitNumber, 'A2');
+    expect(api.createdUnitRent, 950000);
+    expect(find.text('Unit A2'), findsOneWidget);
+    expect(find.textContaining('TSh 950,000 / month'), findsOneWidget);
   });
 
   test(
@@ -711,6 +941,26 @@ Future<void> _enterPropertyText(
   await tester.pumpAndSettle();
 }
 
+Future<void> _enterUnitText(
+  WidgetTester tester,
+  String fieldKey,
+  String value,
+) async {
+  final field = find.byKey(ValueKey(fieldKey));
+  for (var attempt = 0; attempt < 8 && field.evaluate().isEmpty; attempt++) {
+    await tester.drag(find.byType(ListView), const Offset(0, -350));
+    await tester.pumpAndSettle();
+  }
+  expect(field, findsOneWidget);
+  await tester.ensureVisible(field);
+  await tester.enterText(
+    find.descendant(of: field, matching: find.byType(EditableText)),
+    value,
+  );
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pumpAndSettle();
+}
+
 Future<void> _openBookingRequest(WidgetTester tester, _FakeTanteApi api) async {
   await tester.pumpWidget(MyApp(api: api));
   await tester.ensureVisible(find.text('Search homes'));
@@ -773,6 +1023,14 @@ class _FakeTanteApi extends TanteApi {
   double? requestedServiceFee;
   DateTime? requestedStartTime;
   String? bookingFailureMessage;
+  int? updatedUnitId;
+  bool? updatedListingStatus;
+  int? createdBuildingId;
+  int? createdRentalProfileId;
+  String? createdUnitNumber;
+  double? createdUnitRent;
+  bool failPropertyDetailsOnce = false;
+  int propertyDetailsRequests = 0;
 
   _FakeTanteApi()
     : super(
@@ -884,6 +1142,83 @@ class _FakeTanteApi extends TanteApi {
       'email': 'rentals@example.com',
       'viewingServiceFee': 15000,
       'type': 'BUSINESS',
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> getPropertyDetails(
+    int propertyId,
+    String token,
+  ) async {
+    propertyDetailsRequests++;
+    if (failPropertyDetailsOnce && propertyDetailsRequests == 1) {
+      throw const TanteApiException('Temporary property details failure.');
+    }
+    return {
+      'id': propertyId,
+      'name': 'Green Court',
+      'type': 'COMPOUND',
+      'buildings': [
+        {
+          'id': 8,
+          'name': 'Block A',
+          'number': 1,
+          'numberOfFloors': 3,
+          'units': [
+            {
+              'id': 12,
+              'unitNumber': 'A1',
+              'numberOfBedrooms': 2,
+              'numberOfBathrooms': 1,
+              'rentAmount': 850000,
+              'type': 'FLAT',
+              'status': 'AVAILABLE',
+              'isListed': false,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  @override
+  Future<bool> advertiseUnit({
+    required int unitId,
+    required String token,
+  }) async {
+    updatedUnitId = unitId;
+    updatedListingStatus = true;
+    return true;
+  }
+
+  @override
+  Future<Map<String, dynamic>> createUnit({
+    required int buildingId,
+    required int rentalProfileId,
+    required String token,
+    required String unitNumber,
+    required int numberOfBedrooms,
+    required int numberOfBathrooms,
+    required int numberParkingSpots,
+    required double rentAmount,
+    required String type,
+    int? roomSize,
+    String? sizeUnit,
+  }) async {
+    createdBuildingId = buildingId;
+    createdRentalProfileId = rentalProfileId;
+    createdUnitNumber = unitNumber;
+    createdUnitRent = rentAmount;
+    return {
+      'id': 13,
+      'unitNumber': unitNumber,
+      'numberOfBedrooms': numberOfBedrooms,
+      'numberOfBathrooms': numberOfBathrooms,
+      'numberParkingSpots': numberParkingSpots,
+      'rentAmount': rentAmount,
+      'type': type,
+      'status': 'AVAILABLE',
+      'isListed': false,
     };
   }
 
