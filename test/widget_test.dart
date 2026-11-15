@@ -6,12 +6,39 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tante/features/landlord/pages/create_property_page.dart';
 import 'package:tante/features/landlord/pages/landlord_properties_page.dart';
+import 'package:tante/features/landlord/pages/landlord_overview_page.dart';
+import 'package:tante/features/landlord/pages/landlord_viewings_page.dart';
 import 'package:tante/features/landlord/pages/property_details_page.dart';
 import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/main.dart';
 import 'package:tante/services/tante_api.dart';
 
 void main() {
+  testWidgets('landlord overview displays viewing booking count', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LandlordOverviewPage(
+            profileName: 'Tante Rentals',
+            propertyCount: 4,
+            leaseCount: 2,
+            viewingCount: 3,
+            onOpenProperties: () {},
+            onOpenLeases: () {},
+            onOpenViewings: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Properties'), findsOneWidget);
+    expect(find.text('Leases'), findsOneWidget);
+    expect(find.text('Viewing bookings'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+  });
+
   testWidgets('landlord properties displays structured property addresses', (
     tester,
   ) async {
@@ -629,6 +656,221 @@ void main() {
   );
 
   test(
+    'landlord viewing APIs follow the rent-manager routes and DTOs',
+    () async {
+      final requests = <http.Request>[];
+      final api = TanteApi(
+        client: MockClient((request) async {
+          requests.add(request);
+          final action = request.url.path.split('/').last;
+          final booking = <String, dynamic>{
+            'id': 99,
+            'reference': 'VB-99',
+            'rentalProfileId': 7,
+            'unitId': 42,
+            'startTime': '2030-02-03T14:30:00',
+            'endTime': '2030-02-03T16:10:00',
+            'requesterUserId': 12,
+            'status': switch (action) {
+              'approve' => 'CONFIRMED',
+              'reject' => 'REJECTED',
+              'cancel' => 'CANCELLED',
+              'outcome' => 'CLOSED',
+              _ => 'PENDING',
+            },
+            'serviceFee': 15000,
+            'paymentStatus': 'PAID',
+          };
+          if (action == 'outcome') {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            booking['outcome'] = {
+              'id': 5,
+              'bookingId': 99,
+              'type': body['outcome'],
+              'notes': body['notes'],
+              'recordedAt': '2030-02-03T16:10:00',
+            };
+          }
+          final data = request.method == 'GET' ? [booking] : booking;
+          return http.Response(
+            jsonEncode({'success': true, 'data': data}),
+            200,
+          );
+        }),
+      );
+
+      final bookings = await api.getViewingBookings(7, 'test-token');
+      final approved = await api.approveViewingBooking(
+        bookingId: 99,
+        token: 'test-token',
+      );
+      final rejected = await api.rejectViewingBooking(
+        bookingId: 99,
+        token: 'test-token',
+      );
+      final cancelled = await api.cancelViewingBooking(
+        bookingId: 99,
+        token: 'test-token',
+      );
+      final closed = await api.recordViewingOutcome(
+        bookingId: 99,
+        outcome: 'COMPLETED',
+        notes: 'Viewing completed.',
+        token: 'test-token',
+      );
+
+      expect(
+        requests.map((request) => '${request.method} ${request.url.path}'),
+        [
+          'GET /rent-manager/v1/viewings/bookings/by-rental-profile/7',
+          'PATCH /rent-manager/v1/viewings/bookings/99/approve',
+          'PATCH /rent-manager/v1/viewings/bookings/99/reject',
+          'PATCH /rent-manager/v1/viewings/bookings/99/cancel',
+          'PATCH /rent-manager/v1/viewings/bookings/99/outcome',
+        ],
+      );
+      expect(
+        requests.every(
+          (request) =>
+              request.headers['Authorization']?.startsWith('Bearer ') == true,
+        ),
+        isTrue,
+      );
+      expect(
+        requests.skip(1).take(3).every((request) => request.body.isEmpty),
+        isTrue,
+      );
+      expect(jsonDecode(requests.last.body), {
+        'outcome': 'COMPLETED',
+        'notes': 'Viewing completed.',
+      });
+      expect(bookings.single['reference'], 'VB-99');
+      expect(approved['status'], 'CONFIRMED');
+      expect(rejected['status'], 'REJECTED');
+      expect(cancelled['status'], 'CANCELLED');
+      expect((closed['outcome'] as Map)['type'], 'COMPLETED');
+    },
+  );
+
+  testWidgets('landlord viewing bookings enforce payment and record outcomes', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi()
+      ..viewingBookings = [
+        _fakeViewingBooking(id: 99, status: 'PENDING', paymentStatus: 'PAID'),
+        _fakeViewingBooking(
+          id: 100,
+          status: 'PENDING',
+          paymentStatus: 'AWAITING_PAYMENT',
+        ),
+        _fakeViewingBooking(
+          id: 101,
+          status: 'CONFIRMED',
+          paymentStatus: 'PAID',
+        ),
+      ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LandlordViewingsPage(
+            api: api,
+            rentalProfileId: 7,
+            rentalProfileName: 'Tante Rentals',
+            token: 'test-token',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Viewing bookings'), findsOneWidget);
+    expect(find.text('User #12'), findsWidgets);
+    final approveForUnpaid = find.descendant(
+      of: find.ancestor(
+        of: find.text('Unit #100'),
+        matching: find.byType(Card),
+      ),
+      matching: find.widgetWithText(FilledButton, 'Approve'),
+    );
+    expect(tester.widget<FilledButton>(approveForUnpaid).onPressed, isNull);
+
+    final paidBookingCard = find.ancestor(
+      of: find.text('Unit #99'),
+      matching: find.byType(Card),
+    );
+    final paidBookingApprove = find.descendant(
+      of: paidBookingCard,
+      matching: find.widgetWithText(FilledButton, 'Approve'),
+    );
+    await tester.ensureVisible(paidBookingApprove);
+    await tester.tap(paidBookingApprove);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approve').last);
+    await tester.pumpAndSettle();
+    expect(api.updatedViewingAction, 'approve');
+    expect(find.text('Confirmed'), findsNWidgets(2));
+
+    await tester.ensureVisible(find.text('Record outcome').first);
+    await tester.tap(find.text('Record outcome').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Completed').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextFormField).last,
+      'Viewing completed.',
+    );
+    await tester.tap(find.text('Save outcome'));
+    await tester.pumpAndSettle();
+
+    expect(api.recordedViewingOutcome, 'COMPLETED');
+    expect(api.recordedViewingNotes, 'Viewing completed.');
+    expect(
+      find.textContaining('Completed — Viewing completed.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('landlord viewing list shows backend errors and can retry', (
+    tester,
+  ) async {
+    int? loadedBookingCount;
+    final api = _FakeTanteApi()
+      ..viewingBookingsFailure = 'Viewing bookings are temporarily unavailable.'
+      ..viewingBookings = [
+        _fakeViewingBooking(id: 99, status: 'PENDING', paymentStatus: 'PAID'),
+      ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LandlordViewingsPage(
+            api: api,
+            rentalProfileId: 7,
+            rentalProfileName: 'Tante Rentals',
+            token: 'test-token',
+            onBookingsLoaded: (count) => loadedBookingCount = count,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Viewing bookings are temporarily unavailable.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('VB-99'), findsOneWidget);
+    expect(loadedBookingCount, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  test(
     'listed-units API includes selected filters and parses the result',
     () async {
       late Uri requestUri;
@@ -941,6 +1183,25 @@ Future<void> _enterPropertyText(
   await tester.pumpAndSettle();
 }
 
+Map<String, dynamic> _fakeViewingBooking({
+  required int id,
+  required String status,
+  required String paymentStatus,
+}) {
+  return {
+    'id': id,
+    'reference': 'VB-$id',
+    'rentalProfileId': 7,
+    'unitId': id,
+    'startTime': '2030-02-03T14:30:00',
+    'endTime': '2030-02-03T16:10:00',
+    'requesterUserId': 12,
+    'status': status,
+    'serviceFee': 15000,
+    'paymentStatus': paymentStatus,
+  };
+}
+
 Future<void> _enterUnitText(
   WidgetTester tester,
   String fieldKey,
@@ -1031,6 +1292,11 @@ class _FakeTanteApi extends TanteApi {
   double? createdUnitRent;
   bool failPropertyDetailsOnce = false;
   int propertyDetailsRequests = 0;
+  List<Map<String, dynamic>> viewingBookings = const [];
+  String? viewingBookingsFailure;
+  String? updatedViewingAction;
+  String? recordedViewingOutcome;
+  String? recordedViewingNotes;
 
   _FakeTanteApi()
     : super(
@@ -1240,5 +1506,82 @@ class _FakeTanteApi extends TanteApi {
     requestedServiceFee = serviceFee;
     requestedStartTime = startTime;
     return {'id': 8, 'reference': 'VB-test'};
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getViewingBookings(
+    int rentalProfileId,
+    String token,
+  ) async {
+    final failure = viewingBookingsFailure;
+    if (failure != null) {
+      viewingBookingsFailure = null;
+      throw TanteApiException(failure);
+    }
+    return viewingBookings;
+  }
+
+  Future<Map<String, dynamic>> _updateFakeViewingBooking(
+    int bookingId,
+    String action,
+    String status,
+  ) async {
+    updatedViewingAction = action;
+    final booking = viewingBookings.singleWhere(
+      (item) => item['id'] == bookingId,
+    );
+    final updated = {...booking, 'status': status};
+    viewingBookings = viewingBookings
+        .map((item) => item['id'] == bookingId ? updated : item)
+        .toList();
+    return updated;
+  }
+
+  @override
+  Future<Map<String, dynamic>> approveViewingBooking({
+    required int bookingId,
+    required String token,
+  }) => _updateFakeViewingBooking(bookingId, 'approve', 'CONFIRMED');
+
+  @override
+  Future<Map<String, dynamic>> rejectViewingBooking({
+    required int bookingId,
+    required String token,
+  }) => _updateFakeViewingBooking(bookingId, 'reject', 'REJECTED');
+
+  @override
+  Future<Map<String, dynamic>> cancelViewingBooking({
+    required int bookingId,
+    required String token,
+  }) => _updateFakeViewingBooking(bookingId, 'cancel', 'CANCELLED');
+
+  @override
+  Future<Map<String, dynamic>> recordViewingOutcome({
+    required int bookingId,
+    required String outcome,
+    required String token,
+    String? notes,
+  }) async {
+    updatedViewingAction = 'outcome';
+    recordedViewingOutcome = outcome;
+    recordedViewingNotes = notes;
+    final booking = viewingBookings.singleWhere(
+      (item) => item['id'] == bookingId,
+    );
+    final updated = {
+      ...booking,
+      'status': 'CLOSED',
+      'outcome': {
+        'id': 1,
+        'bookingId': bookingId,
+        'type': outcome,
+        'notes': notes,
+        'recordedAt': '2030-02-03T16:10:00',
+      },
+    };
+    viewingBookings = viewingBookings
+        .map((item) => item['id'] == bookingId ? updated : item)
+        .toList();
+    return updated;
   }
 }
