@@ -9,10 +9,21 @@ class LandlordPropertiesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LandlordPageLayout(
-      title: 'Your properties',
-      subtitle: 'Property details loaded from Property Manager.',
-      children: properties.isEmpty
+    return ListView(
+    padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      children: [
+        Text(
+          'Your properties',
+          style: const TextStyle(
+            fontSize: 25,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF102F4C),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text('Property details loaded from Property Manager.', style: const TextStyle(color: Color(0xFF3E5674))),
+        const SizedBox(height: 22),
+        ...properties.isEmpty
           ? [
               const LandlordEmptyState(
                 'No properties are linked to this rental profile yet.',
@@ -50,6 +61,7 @@ class LandlordPropertiesPage extends StatelessWidget {
                 address: readableAddress,
               );
             }).toList(),
+      ],
     );
   }
 }
