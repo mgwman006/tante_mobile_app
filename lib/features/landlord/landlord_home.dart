@@ -220,7 +220,13 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
         onAddProperty: _addProperty,
         onOpenProperty: _openProperty,
       ),
-      LandlordLeasesPage(leases: _leases),
+      LandlordLeasesPage(
+        leases: _leases,
+        api: _api,
+        token: widget.session.token,
+        rentalProfileId: selectedRentalProfileId,
+        payerUserId: widget.session.userId,
+      ),
       LandlordViewingsPage(
         api: _api,
         rentalProfileId: selectedRentalProfileId,

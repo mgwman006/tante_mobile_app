@@ -126,6 +126,58 @@ class PropertyDataCard extends StatelessWidget {
   }
 }
 
+class LeaseDataCard extends StatelessWidget {
+  const LeaseDataCard({
+    super.key,
+    required this.title,
+    required this.status,
+    required this.statusColor,
+    required this.detail,
+    this.onTap,
+  });
+
+  final String title;
+  final String status;
+  final Color statusColor;
+  final String detail;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: const CircleAvatar(
+          backgroundColor: Color(0xFFE7F8E7),
+          child: Icon(Icons.description_outlined, color: Color(0xFF19A75C)),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Chip(
+                label: Text(status),
+                visualDensity: VisualDensity.compact,
+                backgroundColor: statusColor.withValues(alpha: .12),
+                side: BorderSide(color: statusColor.withValues(alpha: .35)),
+                labelStyle: TextStyle(
+                  color: statusColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (detail.isNotEmpty) Text(detail),
+          ],
+        ),
+        isThreeLine: true,
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
 class LandlordInfoCard extends StatelessWidget {
   const LandlordInfoCard({
     super.key,

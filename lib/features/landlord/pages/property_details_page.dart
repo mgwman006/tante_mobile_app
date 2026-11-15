@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:tante/services/tante_api.dart';
 
 import 'create_unit_page.dart';
+import '../widgets/lease_terms_editor.dart';
 
 class PropertyDetailsPage extends StatefulWidget {
   const PropertyDetailsPage({
@@ -141,6 +142,9 @@ class _PropertyDetailsPageState extends State<PropertyDetailsPage> {
   }
 
   Widget _buildProperty(Map<String, dynamic> property) {
+    final description = sanitizeRichHtml(
+      property['description']?.toString() ?? '',
+    );
     final buildings = _objectList(
       property['buildings'],
       'The property service returned invalid building details.',
@@ -159,6 +163,17 @@ class _PropertyDetailsPageState extends State<PropertyDetailsPage> {
           _readableEnum(property['type']),
           style: Theme.of(context).textTheme.titleMedium,
         ),
+        if (description.trim().isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text(
+            'Description',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          RichHtmlContent(html: description),
+        ],
         const SizedBox(height: 20),
         if (buildings.isEmpty)
           const Card(

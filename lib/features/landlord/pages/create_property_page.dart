@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tante/features/landlord/widgets/lease_terms_editor.dart';
 import 'package:tante/services/tante_api.dart';
 
 class CreatePropertyPage extends StatefulWidget {
@@ -72,7 +73,7 @@ class _CreatePropertyPageState extends State<CreatePropertyPage> {
         numberOfBuildings: int.parse(_buildingsController.text.trim()),
         address: address,
         locationName: _cityController.text.trim(),
-        description: _descriptionController.text,
+        description: sanitizeRichHtml(_descriptionController.text),
         developmentStatus: _developmentStatus,
       );
       if (mounted) {
@@ -93,6 +94,20 @@ class _CreatePropertyPageState extends State<CreatePropertyPage> {
       if (mounted && !_completed && _saving) {
         setState(() => _saving = false);
       }
+    }
+  }
+
+  Future<void> _editDescription() async {
+    final description = await showDialog<String>(
+      context: context,
+      builder: (context) => RichHtmlEditorDialog(
+        title: 'Edit property description',
+        hintText: 'Describe this property...',
+        html: _descriptionController.text,
+      ),
+    );
+    if (description != null && mounted) {
+      setState(() => _descriptionController.text = description);
     }
   }
 
@@ -189,11 +204,32 @@ class _CreatePropertyPageState extends State<CreatePropertyPage> {
               },
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _descriptionController,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Description (optional)',
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Description (optional)',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _saving ? null : _editDescription,
+                      icon: const Icon(Icons.edit_outlined),
+                      label: Text(
+                        _descriptionController.text.trim().isEmpty
+                            ? 'Add description'
+                            : 'Edit description',
+                      ),
+                    ),
+                    if (_descriptionController.text.trim().isNotEmpty) ...[
+                      const Divider(),
+                      RichHtmlContent(html: _descriptionController.text),
+                    ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),

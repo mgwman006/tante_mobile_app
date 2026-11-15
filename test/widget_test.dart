@@ -7,14 +7,557 @@ import 'package:http/testing.dart';
 import 'package:tante/features/landlord/pages/create_property_page.dart';
 import 'package:tante/features/landlord/pages/landlord_properties_page.dart';
 import 'package:tante/features/landlord/pages/landlord_overview_page.dart';
+import 'package:tante/features/landlord/pages/landlord_leases_page.dart';
 import 'package:tante/features/landlord/pages/landlord_viewings_page.dart';
+import 'package:tante/features/landlord/pages/lease_details_page.dart';
 import 'package:tante/features/landlord/pages/property_details_page.dart';
+import 'package:tante/features/landlord/widgets/lease_terms_editor.dart';
 import 'package:tante/features/landlord/landlord_home.dart';
 import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/main.dart';
 import 'package:tante/services/tante_api.dart';
 
 void main() {
+  test(
+    'lease terms sanitizer preserves formatting and removes unsafe HTML',
+    () {
+      expect(
+        sanitizeRichHtml(
+          '<div onclick="run()">Lease <strong>terms</strong></div>'
+          '<script>alert(1)</script><img src="https://invalid.example">',
+        ),
+        '<p>Lease <strong>terms</strong></p>',
+      );
+    },
+  );
+
+  testWidgets(
+    'lease terms editor edits readable text and saves formatted HTML',
+    (tester) async {
+      String? savedTerms;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () async {
+                  savedTerms = await showDialog<String>(
+                    context: context,
+                    builder: (context) => const RichHtmlEditorDialog(html: ''),
+                  );
+                },
+                child: const Text('Open editor'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open editor'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Bold'), findsOneWidget);
+      expect(find.byTooltip('Bulleted list'), findsOneWidget);
+      expect(find.text('Preview'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'New lease term');
+      final controller = tester
+          .widget<TextField>(find.byType(TextField))
+          .controller!;
+      controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: controller.text.length,
+      );
+      await tester.tap(find.byTooltip('Bold'));
+      await tester.pumpAndSettle();
+      expect(controller.text, 'New lease term');
+
+      await tester.tap(find.text('Preview'));
+      await tester.pumpAndSettle();
+      expect(find.text('New lease term'), findsOneWidget);
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(savedTerms, '<p><strong>New lease term</strong></p>');
+    },
+  );
+
+  testWidgets('lease terms editor loads formatted HTML as readable text', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RichHtmlEditorDialog(
+            html:
+                '<p>Existing <strong>terms</strong></p>'
+                '<ul><li>First</li><li>Second</li></ul>',
+          ),
+        ),
+      ),
+    );
+
+    final controller = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!;
+    expect(controller.text, 'Existing terms\n\u2022 First\n\u2022 Second');
+    expect(controller.text, isNot(contains('<')));
+  });
+
+  testWidgets('lease terms editor stores readable numbered lists as HTML', (
+    tester,
+  ) async {
+    String? savedTerms;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                savedTerms = await showDialog<String>(
+                  context: context,
+                  builder: (context) => const RichHtmlEditorDialog(html: ''),
+                );
+              },
+              child: const Text('Open list editor'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open list editor'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'First\nSecond');
+    final controller = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!;
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
+    await tester.tap(find.byTooltip('Numbered list'));
+    await tester.pumpAndSettle();
+
+    expect(controller.text, '1. First\n2. Second');
+    expect(controller.text, isNot(contains('<li>')));
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(savedTerms, '<ol><li>First</li><li>Second</li></ol>');
+  });
+
+  test('lease API uses Rent Manager detail and update contracts', () async {
+    final requests = <http.Request>[];
+    final api = TanteApi(
+      client: MockClient((request) async {
+        requests.add(request);
+        final data = request.url.path.endsWith('/rent/summary/15')
+            ? {
+                'totalExpectedAmount': 0,
+                'totalPaidAmount': 0,
+                'totalOutstandingAmount': 0,
+                'paymentBlocks': [],
+              }
+            : {
+                'id': 15,
+                'rent': {
+                  'amount': 850000,
+                  'currency': 'TZS',
+                  'frequency': 'MONTHLY',
+                },
+                'status': 'PENDING',
+                'startDate': '2026-01-01',
+                'endDate': '2026-12-31',
+              };
+        return http.Response(jsonEncode({'success': true, 'data': data}), 200);
+      }),
+    );
+
+    await api.getLeaseDetails(15, 'test-token');
+    await api.updateLeaseDates(
+      leaseId: 15,
+      startDate: '2026-02-01',
+      endDate: '2027-01-31',
+      token: 'test-token',
+    );
+    await api.updateLeaseRent(
+      leaseId: 15,
+      amount: 950000,
+      currency: 'TZS',
+      frequency: 'MONTHLY',
+      fullLeasePaymentRequired: false,
+      token: 'test-token',
+    );
+    await api.updateLeaseTerms(
+      leaseId: 15,
+      leaseTerms: 'Updated terms',
+      token: 'test-token',
+    );
+    await api.getLeaseRentSummary(15, 'test-token');
+
+    expect(requests.map((request) => request.url.path), [
+      '/rent-manager/v1/leases/15',
+      '/rent-manager/v1/leases/15/dates',
+      '/rent-manager/v1/leases/15/rent',
+      '/rent-manager/v1/leases/15/terms',
+      '/rent-manager/v1/leases/rent/summary/15',
+    ]);
+    expect(requests.first.headers['authorization'], 'Bearer test-token');
+    expect(jsonDecode(requests[1].body), {
+      'startDate': '2026-02-01',
+      'endDate': '2027-01-31',
+    });
+    expect(jsonDecode(requests[2].body), {
+      'rent': {'amount': 950000, 'currency': 'TZS', 'frequency': 'MONTHLY'},
+      'fullLeasePaymentRequired': false,
+    });
+    expect(jsonDecode(requests[3].body), {'leaseTerms': 'Updated terms'});
+  });
+
+  test(
+    'lease unit assignment and payment APIs match backend contracts',
+    () async {
+      final requests = <http.Request>[];
+      final api = TanteApi(
+        client: MockClient((request) async {
+          requests.add(request);
+          final data = switch (request.url.path) {
+            '/property-manager/v1/properties/rental-profile/7' => [
+              {
+                'name': 'Green Court',
+                'buildings': [
+                  {
+                    'name': 'Block A',
+                    'units': [
+                      {
+                        'id': 42,
+                        'unitNumber': 'A2',
+                        'type': 'FLAT',
+                        'status': 'AVAILABLE',
+                        'rentAmount': 850000,
+                      },
+                      {
+                        'id': 43,
+                        'unitNumber': 'A3',
+                        'type': 'FLAT',
+                        'status': 'OCCUPIED',
+                        'rentAmount': 900000,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            '/rent-manager/v1/payment-blocks/rental-profile/7/record-payment' =>
+              'Payment recorded successfully',
+            _ => {
+              'id': 15,
+              'unitId': 42,
+              'rent': {
+                'amount': 850000,
+                'currency': 'TZS',
+                'frequency': 'MONTHLY',
+              },
+              'status': 'PENDING',
+              'startDate': '2026-01-01',
+              'endDate': '2026-12-31',
+            },
+          };
+          return http.Response(
+            jsonEncode({'success': true, 'data': data}),
+            200,
+          );
+        }),
+      );
+
+      final units = await api.getAvailableLeaseUnits(7, 'test-token');
+      final updatedLease = await api.assignLeaseUnit(
+        leaseId: 15,
+        unitId: 42,
+        token: 'test-token',
+      );
+      final confirmation = await api.recordLeasePayment(
+        rentalProfileId: 7,
+        paymentBlockId: 19,
+        amount: 850000,
+        currency: 'TZS',
+        payerUserId: 5,
+        method: 'CASH',
+        reference: 'RCPT-19',
+        token: 'test-token',
+        note: 'October rent',
+      );
+
+      expect(units, hasLength(1));
+      expect(units.single.id, 42);
+      expect(updatedLease['unitId'], 42);
+      expect(confirmation, 'Payment recorded successfully');
+      expect(requests.map((request) => request.url.path), [
+        '/property-manager/v1/properties/rental-profile/7',
+        '/rent-manager/v1/leases/15/unit',
+        '/rent-manager/v1/payment-blocks/rental-profile/7/record-payment',
+      ]);
+      expect(jsonDecode(requests[1].body), {'unitId': 42});
+      expect(jsonDecode(requests[2].body), {
+        'paymentBlockId': 19,
+        'amount': 850000,
+        'currency': 'TZS',
+        'payerUserId': 5,
+        'method': 'CASH',
+        'reference': 'RCPT-19',
+        'note': 'October rent',
+      });
+      expect(requests.last.headers['authorization'], 'Bearer test-token');
+    },
+  );
+
+  testWidgets('lease details show six tabs and restrict ACTIVE editing', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi()..leaseStatus = 'ACTIVE';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LeaseDetailsPage(leaseId: 15, token: 'test-token', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (final label in [
+      'Tenant',
+      'Unit',
+      'Dates',
+      'Rent',
+      'Terms and conditions',
+      'Payment',
+    ]) {
+      expect(find.text(label), findsWidgets);
+    }
+
+    await tester.tap(find.text('Dates').first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('lease-edit-restricted')), findsOneWidget);
+    expect(find.text('Edit'), findsNothing);
+  });
+
+  testWidgets('lease cards navigate to lease details', (tester) async {
+    final api = _FakeTanteApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LandlordLeasesPage(
+            leases: const [
+              {'id': 15, 'referenceNumber': 'LEASE-15', 'status': 'PENDING'},
+            ],
+            api: api,
+            token: 'test-token',
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Lease LEASE-15'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Lease LEASE-15'), findsOneWidget);
+    expect(find.text('Dates'), findsOneWidget);
+  });
+
+  testWidgets('pending lease dates can be edited and saved', (tester) async {
+    final api = _FakeTanteApi()..leaseStatus = 'PENDING';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LeaseDetailsPage(leaseId: 15, token: 'test-token', api: api),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dates').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.at(0), '2026-02-01');
+    await tester.enterText(fields.at(1), '2027-01-31');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.updatedLeaseStartDate, '2026-02-01');
+    expect(api.updatedLeaseEndDate, '2027-01-31');
+    expect(find.text('Lease updated successfully.'), findsOneWidget);
+  });
+
+  testWidgets('unassigned lease can select and assign an available unit', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LeaseDetailsPage(
+          leaseId: 15,
+          token: 'test-token',
+          api: api,
+          rentalProfileId: 7,
+          payerUserId: 5,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unit').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Assign a unit'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unit A2'), findsOneWidget);
+    await tester.tap(find.text('Unit A2'));
+    await tester.pumpAndSettle();
+
+    expect(api.assignedUnitId, 42);
+    expect(find.text('Unit A2'), findsOneWidget);
+    expect(find.text('No unit assigned'), findsNothing);
+  });
+
+  testWidgets('landlord can record a full payment block payment', (
+    tester,
+  ) async {
+    final api = _FakeTanteApi()
+      ..leaseStatus = 'ACTIVE'
+      ..paymentBlocks = [
+        {
+          'id': 19,
+          'amount': 850000,
+          'paidAmount': 0,
+          'outstandingAmount': 850000,
+          'startDate': '2026-10-01',
+          'endDate': '2026-10-31',
+          'dueDate': '2026-10-05',
+          'status': 'UNPAID',
+        },
+      ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LeaseDetailsPage(
+          leaseId: 15,
+          token: 'test-token',
+          api: api,
+          rentalProfileId: 7,
+          payerUserId: 5,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Payment').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Payment').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Record payment'), findsOneWidget);
+    await tester.ensureVisible(find.text('Record payment'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Record payment'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(TextFormField).at(1));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(1), 'RCPT-19');
+    await tester.tap(find.text('Submit'));
+    await tester.pumpAndSettle();
+
+    expect(api.recordedPaymentBlockId, 19);
+    expect(api.recordedPaymentAmount, 850000);
+    expect(api.recordedPaymentReference, 'RCPT-19');
+    expect(api.recordedPaymentUserId, 5);
+    expect(find.text('Payment recorded successfully.'), findsOneWidget);
+  });
+
+  testWidgets('landlord lease cards follow the property card layout', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LandlordLeasesPage(
+            leases: const [
+              {
+                'id': 42,
+                'referenceNumber': 'LEASE-42',
+                'status': 'PENDING_TENANT_APPROVAL',
+                'unitId': 12,
+                'startDate': '2026-01-01',
+                'endDate': '2026-12-31',
+                'rent': {
+                  'amount': 850000,
+                  'currency': 'TZS',
+                  'frequency': 'MONTHLY',
+                },
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Lease LEASE-42'), findsOneWidget);
+    expect(find.text('Pending Tenant Approval'), findsOneWidget);
+    expect(find.text('Term: 2026-01-01 – 2026-12-31'), findsOneWidget);
+    expect(find.byType(Card), findsOneWidget);
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    final statusChip = tester.widget<Chip>(
+      find.ancestor(
+        of: find.text('Pending Tenant Approval'),
+        matching: find.byType(Chip),
+      ),
+    );
+    expect(
+      statusChip.backgroundColor,
+      Colors.orange.shade800.withValues(alpha: .12),
+    );
+  });
+
+  testWidgets('landlord leases can be filtered by status', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LandlordLeasesPage(
+            leases: const [
+              {
+                'id': 42,
+                'referenceNumber': 'LEASE-ACTIVE',
+                'status': 'ACTIVE',
+                'startDate': '2026-01-01',
+                'endDate': '2026-12-31',
+              },
+              {
+                'id': 43,
+                'referenceNumber': 'LEASE-PENDING',
+                'status': 'PENDING_TENANT_APPROVAL',
+                'startDate': '2026-02-01',
+                'endDate': '2027-01-31',
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Lease LEASE-ACTIVE'), findsOneWidget);
+    expect(find.text('Lease LEASE-PENDING'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('lease-status-filter')));
+    await tester.pumpAndSettle();
+    for (final status in [
+      'Active',
+      'Ended',
+      'Terminated',
+      'Pending',
+      'Pending Landlord Approval',
+      'Pending Tenant Approval',
+    ]) {
+      expect(find.text(status), findsWidgets);
+    }
+    await tester.tap(find.text('Active').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Lease LEASE-ACTIVE'), findsOneWidget);
+    expect(find.text('Lease LEASE-PENDING'), findsNothing);
+    expect(find.text('No leases match the selected status.'), findsNothing);
+  });
+
   testWidgets('landlord back button returns to the previous visited page', (
     tester,
   ) async {
@@ -265,6 +808,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Block A'), findsOneWidget);
+    expect(find.text('Green living'), findsOneWidget);
     expect(find.text('Unit A1'), findsOneWidget);
     expect(find.textContaining('2 bed · 1 bath'), findsOneWidget);
     expect(find.text('Advertise'), findsOneWidget);
@@ -503,6 +1047,13 @@ void main() {
     await _enterPropertyText(tester, 'property-city-field', 'Dar es Salaam');
     await _enterPropertyText(tester, 'property-region-field', 'Dar es Salaam');
     await _enterPropertyText(tester, 'property-country-field', 'Tanzania');
+    await tester.ensureVisible(find.text('Add description'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add description'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'A sunny home');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Create property'));
     await tester.tap(find.text('Create property'));
     await tester.pumpAndSettle();
@@ -511,6 +1062,7 @@ void main() {
     expect(body['createdByUserId'], 42);
     expect(body['name'], 'Green Court');
     expect(body['type'], 'STAND_ALONE_HOUSE');
+    expect(body['description'], '<p>A sunny home</p>');
     expect((body['location'] as Map)['address'], {
       'streetName': 'Mlimani Road',
       'city': 'Dar es Salaam',
@@ -1391,6 +1943,11 @@ class _FakeTanteApi extends TanteApi {
   bool? updatedListingStatus;
   int? createdBuildingId;
   int? createdRentalProfileId;
+  int? assignedUnitId;
+  int? recordedPaymentBlockId;
+  double? recordedPaymentAmount;
+  int? recordedPaymentUserId;
+  String? recordedPaymentReference;
   String? createdUnitNumber;
   double? createdUnitRent;
   bool failPropertyDetailsOnce = false;
@@ -1400,6 +1957,11 @@ class _FakeTanteApi extends TanteApi {
   String? updatedViewingAction;
   String? recordedViewingOutcome;
   String? recordedViewingNotes;
+  String leaseStatus = 'PENDING';
+  String? updatedLeaseStartDate;
+  String? updatedLeaseEndDate;
+  List<Map<String, dynamic>> paymentBlocks = const [];
+  int paymentSummaryRequests = 0;
 
   _FakeTanteApi()
     : super(
@@ -1435,6 +1997,104 @@ class _FakeTanteApi extends TanteApi {
   }
 
   @override
+  Future<Map<String, dynamic>> getLeaseDetails(
+    int leaseId,
+    String token,
+  ) async {
+    return {
+      'id': leaseId,
+      'referenceNumber': 'LEASE-$leaseId',
+      'status': leaseStatus,
+      'unitId': assignedUnitId,
+      'startDate': updatedLeaseStartDate ?? '2026-01-01',
+      'endDate': updatedLeaseEndDate ?? '2026-12-31',
+      'rent': {'amount': 850000, 'currency': 'TZS', 'frequency': 'MONTHLY'},
+      'fullLeasePaymentRequired': false,
+      'leaseTerms': 'Standard terms',
+      'tenant': {
+        'firstName': 'Jordan',
+        'lastName': 'Smith',
+        'email': 'jordan@example.com',
+        'phoneNumber': '+255712345678',
+      },
+      'invitations': [],
+    };
+  }
+
+  @override
+  Future<List<LeaseUnitOption>> getAvailableLeaseUnits(
+    int rentalProfileId,
+    String token,
+  ) async {
+    return const [
+      LeaseUnitOption(
+        id: 42,
+        unitNumber: 'A2',
+        propertyName: 'Green Court',
+        buildingName: 'Block A',
+        type: 'FLAT',
+        status: 'AVAILABLE',
+        rentAmount: 850000,
+      ),
+    ];
+  }
+
+  @override
+  Future<Map<String, dynamic>> assignLeaseUnit({
+    required int leaseId,
+    required int unitId,
+    required String token,
+  }) async {
+    assignedUnitId = unitId;
+    return getLeaseDetails(leaseId, token);
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateLeaseDates({
+    required int leaseId,
+    required String startDate,
+    required String endDate,
+    required String token,
+  }) async {
+    updatedLeaseStartDate = startDate;
+    updatedLeaseEndDate = endDate;
+    return getLeaseDetails(leaseId, token);
+  }
+
+  @override
+  Future<Map<String, dynamic>> getLeaseRentSummary(
+    int leaseId,
+    String token,
+  ) async {
+    paymentSummaryRequests++;
+    return {
+      'totalExpectedAmount': 850000,
+      'totalPaidAmount': 0,
+      'totalOutstandingAmount': 850000,
+      'paymentBlocks': paymentBlocks,
+    };
+  }
+
+  @override
+  Future<String> recordLeasePayment({
+    required int rentalProfileId,
+    required int paymentBlockId,
+    required double amount,
+    required String currency,
+    required int payerUserId,
+    required String method,
+    required String reference,
+    required String token,
+    String? note,
+  }) async {
+    recordedPaymentBlockId = paymentBlockId;
+    recordedPaymentAmount = amount;
+    recordedPaymentUserId = payerUserId;
+    recordedPaymentReference = reference;
+    return 'Payment recorded successfully';
+  }
+
+  @override
   Future<RentalListingsPage> getListedUnits({
     required int page,
     required String location,
@@ -1464,7 +2124,7 @@ class _FakeTanteApi extends TanteApi {
   }
 
   @override
-  Future<RentalUnitDetails> getUnitDetails(int unitId) async {
+  Future<RentalUnitDetails> getUnitDetails(int unitId, {String? token}) async {
     return const RentalUnitDetails(
       id: 42,
       unitNumber: 'A2',
@@ -1552,6 +2212,8 @@ class _FakeTanteApi extends TanteApi {
       'id': propertyId,
       'name': 'Green Court',
       'type': 'COMPOUND',
+      'description':
+          '<p>Green <strong>living</strong></p><script>unsafe</script>',
       'buildings': [
         {
           'id': 8,
