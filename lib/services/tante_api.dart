@@ -411,6 +411,51 @@ class TanteApi {
     );
   }
 
+  Future<Map<String, dynamic>> createProperty({
+    required int rentalProfileId,
+    required int createdByUserId,
+    required String token,
+    required String name,
+    required String type,
+    required int numberOfBuildings,
+    required Map<String, dynamic> address,
+    String? description,
+    String? developmentStatus,
+    double? landSize,
+    String? landSizeUnit,
+    String? locationName,
+    double latitude = 0,
+    double longitude = 0,
+  }) async {
+    final result = await _request(
+      'POST',
+      '$propertyApiBaseUrl/v1/properties/rental-profile/$rentalProfileId',
+      token: token,
+      body: {
+        'createdByUserId': createdByUserId,
+        'name': name.trim(),
+        'type': type,
+        'numberOfBuildings': numberOfBuildings,
+        'location': {
+          'name': ?_nonEmpty(locationName),
+          'latitude': latitude,
+          'longitude': longitude,
+          'address': address,
+        },
+        'description': ?_nonEmpty(description),
+        'developmentStatus': ?developmentStatus,
+        'landSize': ?landSize,
+        'landSizeUnit': ?_nonEmpty(landSizeUnit),
+      },
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The property service returned an invalid created property.',
+      );
+    }
+    return Map<String, dynamic>.from(result);
+  }
+
   Future<List<Map<String, dynamic>>> getProperties(
     int rentalProfileId,
     String token,
@@ -546,6 +591,11 @@ class TanteApi {
   }
 
   static String _string(dynamic value) => value?.toString() ?? '';
+
+  static String? _nonEmpty(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
 
   static String _apiErrorMessage(Map<String, dynamic> response) {
     final message = _string(response['message']).trim();

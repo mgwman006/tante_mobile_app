@@ -102,7 +102,7 @@ class PropertyDataCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-     return Card(
+    return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
         leading: CircleAvatar(
@@ -110,13 +110,17 @@ class PropertyDataCard extends StatelessWidget {
           child: Icon(icon, color: const Color(0xFF19A75C)),
         ),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Text(address),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(type, style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (address.isNotEmpty) Text(address),
+          ],
+        ),
         isThreeLine: true,
-        // trailing: Text(type, style: const TextStyle(fontWeight: FontWeight.w700)),
       ),
     );
   }
-  
 }
 
 class LandlordInfoCard extends StatelessWidget {
@@ -133,11 +137,7 @@ class LandlordInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _SummaryDataCard(
-      icon: icon,
-      title: title,
-      detail: detail,
-    );
+    return _SummaryDataCard(icon: icon, title: title, detail: detail);
   }
 }
 

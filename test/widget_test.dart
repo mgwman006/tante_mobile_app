@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:tante/features/landlord/pages/create_property_page.dart';
 import 'package:tante/features/landlord/pages/landlord_properties_page.dart';
 import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/main.dart';
@@ -14,8 +15,9 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: LandlordPropertiesPage(
+          onAddProperty: () {},
           properties: [
             {
               'name': 'Green Court',
@@ -37,12 +39,219 @@ void main() {
       ),
     );
 
+    expect(tester.takeException(), isNull);
+    expect(find.text('Residential Property'), findsOneWidget);
     expect(
       find.text(
-        '14, Mlimani Road, Mlimani, Dar es Salaam, Dar es Salaam, Tanzania\nResidential Property · 0 buildings',
+        '14, Mlimani Road, Mlimani, Dar es Salaam, Dar es Salaam, Tanzania',
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('landlord properties page offers an add-property action', (
+    tester,
+  ) async {
+    var addTapped = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LandlordPropertiesPage(
+          properties: const [],
+          onAddProperty: () => addTapped = true,
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Add property'));
+    await tester.pumpAndSettle();
+
+    expect(addTapped, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  test(
+    'create property API sends the backend contract with authentication',
+    () async {
+      late http.Request request;
+      final api = TanteApi(
+        client: MockClient((incoming) async {
+          request = incoming;
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'id': 5, 'name': 'Green Court', 'type': 'COMPOUND'},
+            }),
+            201,
+          );
+        }),
+      );
+
+      final property = await api.createProperty(
+        rentalProfileId: 7,
+        createdByUserId: 42,
+        token: 'test-token',
+        name: ' Green Court ',
+        type: 'COMPOUND',
+        numberOfBuildings: 2,
+        address: {
+          'streetName': 'Mlimani Road',
+          'city': 'Dar es Salaam',
+          'region': 'Dar es Salaam',
+          'country': 'Tanzania',
+        },
+        locationName: 'Dar es Salaam',
+        description: 'Rental compound',
+        developmentStatus: 'OPERATIONAL',
+      );
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+
+      expect(request.method, 'POST');
+      expect(
+        request.url.path,
+        '/property-manager/v1/properties/rental-profile/7',
+      );
+      expect(request.headers['Authorization'], 'Bearer test-token');
+      expect(body, {
+        'createdByUserId': 42,
+        'name': 'Green Court',
+        'type': 'COMPOUND',
+        'numberOfBuildings': 2,
+        'location': {
+          'name': 'Dar es Salaam',
+          'latitude': 0,
+          'longitude': 0,
+          'address': {
+            'streetName': 'Mlimani Road',
+            'city': 'Dar es Salaam',
+            'region': 'Dar es Salaam',
+            'country': 'Tanzania',
+          },
+        },
+        'description': 'Rental compound',
+        'developmentStatus': 'OPERATIONAL',
+      });
+      expect(property['id'], 5);
+    },
+  );
+
+  testWidgets('create property page submits a validated property', (
+    tester,
+  ) async {
+    late http.Request request;
+    final api = TanteApi(
+      client: MockClient((incoming) async {
+        request = incoming;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'id': 5,
+              'name': 'Green Court',
+              'type': 'STAND_ALONE_HOUSE',
+            },
+          }),
+          201,
+        );
+      }),
+    );
+    const session = AuthSession(
+      phoneNumber: '+255712345678',
+      token: 'test-token',
+      userId: 42,
+      role: 'Landlord',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<Map<String, dynamic>>(
+                  builder: (_) => CreatePropertyPage(
+                    api: api,
+                    session: session,
+                    rentalProfileId: 7,
+                  ),
+                ),
+              ),
+              child: const Text('Open form'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open form'));
+    await tester.pumpAndSettle();
+
+    await _enterPropertyText(tester, 'property-name-field', 'Green Court');
+    await _enterPropertyText(tester, 'property-street-field', 'Mlimani Road');
+    await _enterPropertyText(tester, 'property-city-field', 'Dar es Salaam');
+    await _enterPropertyText(tester, 'property-region-field', 'Dar es Salaam');
+    await _enterPropertyText(tester, 'property-country-field', 'Tanzania');
+    await tester.ensureVisible(find.text('Create property'));
+    await tester.tap(find.text('Create property'));
+    await tester.pumpAndSettle();
+
+    final body = jsonDecode(request.body) as Map<String, dynamic>;
+    expect(body['createdByUserId'], 42);
+    expect(body['name'], 'Green Court');
+    expect(body['type'], 'STAND_ALONE_HOUSE');
+    expect((body['location'] as Map)['address'], {
+      'streetName': 'Mlimani Road',
+      'city': 'Dar es Salaam',
+      'region': 'Dar es Salaam',
+      'country': 'Tanzania',
+    });
+    expect(find.text('Open form'), findsOneWidget);
+  });
+
+  testWidgets('create property page can be cancelled while scrolling', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<Map<String, dynamic>>(
+                  builder: (_) => CreatePropertyPage(
+                    api: TanteApi(),
+                    session: const AuthSession(
+                      phoneNumber: '+255712345678',
+                      token: 'test-token',
+                      userId: 42,
+                      role: 'Landlord',
+                    ),
+                    rentalProfileId: 7,
+                  ),
+                ),
+              ),
+              child: const Text('Open form'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open form'));
+    await tester.pumpAndSettle();
+    final countryField = find.byKey(const ValueKey('property-country-field'));
+    for (
+      var attempt = 0;
+      attempt < 8 && countryField.evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.drag(find.byType(ListView), const Offset(0, -350));
+      await tester.pumpAndSettle();
+    }
+    expect(countryField, findsOneWidget);
+    await tester.ensureVisible(countryField);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open form'), findsOneWidget);
   });
 
   test('tenant details API parses the backend object response', () async {
@@ -479,6 +688,27 @@ void main() {
     expect(find.text('Viewing request failed'), findsNothing);
     expect(find.text('Home details'), findsOneWidget);
   });
+}
+
+Future<void> _enterPropertyText(
+  WidgetTester tester,
+  String fieldKey,
+  String value,
+) async {
+  final field = find.byKey(ValueKey(fieldKey));
+  for (var attempt = 0; attempt < 8 && field.evaluate().isEmpty; attempt++) {
+    await tester.drag(find.byType(ListView), const Offset(0, -350));
+    await tester.pumpAndSettle();
+  }
+  expect(field, findsOneWidget);
+  await tester.ensureVisible(field);
+  final editableText = find.descendant(
+    of: field,
+    matching: find.byType(EditableText),
+  );
+  await tester.enterText(editableText, value);
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pumpAndSettle();
 }
 
 Future<void> _openBookingRequest(WidgetTester tester, _FakeTanteApi api) async {

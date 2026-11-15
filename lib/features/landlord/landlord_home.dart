@@ -3,6 +3,7 @@ import 'package:tante/services/tante_api.dart';
 
 import 'dialogs/create_rental_profile_dialog.dart';
 import 'pages/landlord_account_page.dart';
+import 'pages/create_property_page.dart';
 import 'pages/landlord_leases_page.dart';
 import 'pages/landlord_overview_page.dart';
 import 'pages/landlord_properties_page.dart';
@@ -106,6 +107,27 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
     await _loadProfileDashboard(profile);
   }
 
+  Future<void> _addProperty() async {
+    final rentalProfileId = rentalProfileIdFrom(_selectedProfile?['id']);
+    if (rentalProfileId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a rental profile first.')),
+      );
+      return;
+    }
+    final property = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (context) => CreatePropertyPage(
+          api: _api,
+          session: widget.session,
+          rentalProfileId: rentalProfileId,
+        ),
+      ),
+    );
+    if (!mounted || property == null) return;
+    setState(() => _properties = [..._properties, property]);
+  }
+
   Future<void> _switchProfile() async {
     final profile = await showRentalProfileSwitcher(
       context: context,
@@ -141,7 +163,10 @@ class _LandlordHomePageState extends State<LandlordHomePage> {
         onOpenProperties: () => setState(() => _tab = 1),
         onOpenLeases: () => setState(() => _tab = 2),
       ),
-      LandlordPropertiesPage(properties: _properties),
+      LandlordPropertiesPage(
+        properties: _properties,
+        onAddProperty: _addProperty,
+      ),
       LandlordLeasesPage(leases: _leases),
       LandlordAccountPage(
         profile: profile,
