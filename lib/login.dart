@@ -1,10 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:tante/services/tante_api.dart';
 
+class LoginRouteArgs {
+  const LoginRouteArgs({
+    this.role = 'Landlord',
+    this.returnToPreviousRoute = false,
+  });
+
+  final String role;
+  final bool returnToPreviousRoute;
+}
+
 class Login extends StatefulWidget {
-  const Login({super.key, this.initialRole = 'Landlord'});
+  const Login({
+    super.key,
+    this.initialRole = 'Landlord',
+    this.returnToPreviousRoute = false,
+    this.api,
+  });
 
   final String initialRole;
+  final bool returnToPreviousRoute;
+  final TanteApi? api;
 
   @override
   State<Login> createState() => _LoginState();
@@ -14,7 +31,7 @@ class _LoginState extends State<Login> {
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _api = TanteApi();
+  late final TanteApi _api;
   late String _role;
   bool _obscurePassword = true;
   bool _isLoading = false;
@@ -22,6 +39,7 @@ class _LoginState extends State<Login> {
   @override
   void initState() {
     super.initState();
+    _api = widget.api ?? TanteApi();
     _role = widget.initialRole == 'Tenant' ? 'Tenant' : 'Landlord';
   }
 
@@ -42,7 +60,11 @@ class _LoginState extends State<Login> {
         role: _role,
       );
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/home', arguments: session);
+      if (widget.returnToPreviousRoute) {
+        Navigator.pop(context, session);
+      } else {
+        Navigator.pushReplacementNamed(context, '/home', arguments: session);
+      }
     } on TanteApiException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(

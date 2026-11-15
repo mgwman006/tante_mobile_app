@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:tante/services/tante_api.dart';
-import 'package:tante/tante_colors.dart';
+import '../../services/tante_api.dart';
+import '../../tante_colors.dart';
 
 class ListingsPage extends StatefulWidget {
   const ListingsPage({super.key, this.initialFilters = const {}, this.api});
@@ -15,7 +15,7 @@ class ListingsPage extends StatefulWidget {
 
 class _ListingsPageState extends State<ListingsPage> {
   late final TanteApi _api;
-  late final TextEditingController _cityController;
+  late final TextEditingController _locationController;
   late final TextEditingController _minRentController;
   late final TextEditingController _maxRentController;
   late String _type;
@@ -31,8 +31,11 @@ class _ListingsPageState extends State<ListingsPage> {
   void initState() {
     super.initState();
     _api = widget.api ?? TanteApi();
-    _cityController = TextEditingController(
-      text: widget.initialFilters['city'] ?? '',
+    _locationController = TextEditingController(
+      text:
+          widget.initialFilters['location'] ??
+          widget.initialFilters['city'] ??
+          '',
     );
     _minRentController = TextEditingController(
       text: widget.initialFilters['minRent'] ?? '',
@@ -47,7 +50,7 @@ class _ListingsPageState extends State<ListingsPage> {
 
   @override
   void dispose() {
-    _cityController.dispose();
+    _locationController.dispose();
     _minRentController.dispose();
     _maxRentController.dispose();
     super.dispose();
@@ -62,7 +65,7 @@ class _ListingsPageState extends State<ListingsPage> {
     try {
       final page = await _api.getListedUnits(
         page: _pageNumber,
-        city: _cityController.text,
+        location: _locationController.text,
         type: _type,
         minBedrooms: int.tryParse(_minBedrooms) ?? 0,
         minRent: _minRentController.text.trim(),
@@ -251,12 +254,12 @@ class _ListingsPageState extends State<ListingsPage> {
         child: Column(
           children: [
             TextField(
-              controller: _cityController,
+              controller: _locationController,
               textInputAction: TextInputAction.search,
               onSubmitted: (_) => _applyFilters(),
               decoration: const InputDecoration(
-                labelText: 'City',
-                hintText: 'Any city',
+                labelText: 'Location',
+                hintText: 'Neighborhood, street, city, or region',
                 prefixIcon: Icon(Icons.location_on_outlined),
               ),
             ),
@@ -368,91 +371,98 @@ class _ListingsPageState extends State<ListingsPage> {
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 150,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: colors,
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+      child: InkWell(
+        onTap: () => Navigator.pushNamed(
+          context,
+          '/unit-details',
+          arguments: listing.id,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 150,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: colors,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    left: 16,
+                    top: 14,
+                    child: Chip(
+                      label: Text(listing.status.toLowerCase()),
+                      backgroundColor: Colors.white.withValues(alpha: .9),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                  Center(
+                    child: Icon(
+                      Icons.apartment_rounded,
+                      size: 58,
+                      color: TanteColors.navy.withValues(alpha: .45),
+                    ),
+                  ),
+                ],
               ),
             ),
-            child: Stack(
-              children: [
-                Positioned(
-                  left: 16,
-                  top: 14,
-                  child: Chip(
-                    label: Text(listing.status.toLowerCase()),
-                    backgroundColor: Colors.white.withValues(alpha: .9),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-                Center(
-                  child: Icon(
-                    Icons.apartment_rounded,
-                    size: 58,
-                    color: TanteColors.navy.withValues(alpha: .45),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.location_on_outlined,
-                      size: 17,
-                      color: TanteColors.mutedText,
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
                     ),
-                    Expanded(
-                      child: Text(
-                        location.isEmpty
-                            ? 'Location available on request'
-                            : location,
-                        style: const TextStyle(color: TanteColors.mutedText),
+                  ),
+                  const SizedBox(height: 5),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.location_on_outlined,
+                        size: 17,
+                        color: TanteColors.mutedText,
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 16,
-                  children: [
-                    Text('${listing.bedrooms} bed'),
-                    Text('${listing.bathrooms} bath'),
-                    Text(listing.type.toLowerCase().replaceAll('_', ' ')),
-                  ],
-                ),
-                const Divider(height: 24),
-                Text(
-                  '${_formatRent(listing.rentAmount)} / month',
-                  style: const TextStyle(
-                    color: TanteColors.green,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
+                      Expanded(
+                        child: Text(
+                          location.isEmpty
+                              ? 'Location available on request'
+                              : location,
+                          style: const TextStyle(color: TanteColors.mutedText),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 16,
+                    children: [
+                      Text('${listing.bedrooms} bed'),
+                      Text('${listing.bathrooms} bath'),
+                      Text(listing.type.toLowerCase().replaceAll('_', ' ')),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  Text(
+                    '${_formatRent(listing.rentAmount)} / month',
+                    style: const TextStyle(
+                      color: TanteColors.green,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -4,7 +4,9 @@ import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/services/tante_api.dart';
 
 class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.api});
+
+  final TanteApi? api;
 
   @override
   Widget build(BuildContext context) {
@@ -16,6 +18,6 @@ class HomePage extends StatelessWidget {
     }
     return session.role == 'Landlord'
         ? LandlordHomePage(session: session)
-        : TenantHomePage(session: session);
+        : TenantHomePage(session: session, api: api);
   }
 }

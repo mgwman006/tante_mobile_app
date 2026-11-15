@@ -9,23 +9,16 @@ class LandingPage extends StatefulWidget {
 }
 
 class _LandingPageState extends State<LandingPage> {
-  String _city = 'Dar es Salaam';
+  String _location = 'Dar es Salaam';
   String _unitType = '';
-  String _budget = '';
 
   void _openLogin(String role) {
     Navigator.pushNamed(context, '/login', arguments: role);
   }
 
   void _searchListings() {
-    final filters = <String, String>{'city': _city};
+    final filters = <String, String>{'location': _location};
     if (_unitType.isNotEmpty) filters['type'] = _unitType;
-    if (_budget == 'under-500000') {
-      filters['maxRent'] = '500000';
-    } else if (_budget == '500000-1000000') {
-      filters['minRent'] = '500000';
-      filters['maxRent'] = '1000000';
-    }
     Navigator.pushNamed(context, '/listings', arguments: filters);
   }
 
@@ -204,7 +197,7 @@ class _LandingPageState extends State<LandingPage> {
               const Text('Find available properties in your area.'),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                initialValue: _city,
+                initialValue: _location,
                 decoration: const InputDecoration(labelText: 'Location'),
                 items: const [
                   DropdownMenuItem(
@@ -214,7 +207,8 @@ class _LandingPageState extends State<LandingPage> {
                   DropdownMenuItem(value: 'Arusha', child: Text('Arusha')),
                   DropdownMenuItem(value: 'Mwanza', child: Text('Mwanza')),
                 ],
-                onChanged: (value) => setState(() => _city = value ?? _city),
+                onChanged: (value) =>
+                    setState(() => _location = value ?? _location),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -229,23 +223,6 @@ class _LandingPageState extends State<LandingPage> {
                   DropdownMenuItem(value: 'SHOP', child: Text('Shop')),
                 ],
                 onChanged: (value) => setState(() => _unitType = value ?? ''),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _budget,
-                decoration: const InputDecoration(labelText: 'Budget'),
-                items: const [
-                  DropdownMenuItem(value: '', child: Text('Any budget')),
-                  DropdownMenuItem(
-                    value: 'under-500000',
-                    child: Text('Under TSh 500,000'),
-                  ),
-                  DropdownMenuItem(
-                    value: '500000-1000000',
-                    child: Text('TSh 500,000–1,000,000'),
-                  ),
-                ],
-                onChanged: (value) => setState(() => _budget = value ?? ''),
               ),
               const SizedBox(height: 16),
               FilledButton.icon(

@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:tante/home.dart';
 import 'package:tante/landing_page.dart';
 import 'package:tante/login.dart';
-import 'package:tante/listings_page.dart';
+import 'package:tante/features/listing/listings_page.dart';
+import 'package:tante/features/listing/unit_details_page.dart';
 import 'package:tante/services/tante_api.dart';
 import 'package:tante/tante_colors.dart';
 
@@ -84,13 +85,22 @@ class MyApp extends StatelessWidget {
           case '/home':
             return MaterialPageRoute<void>(
               settings: settings,
-              builder: (_) => const HomePage(),
+              builder: (_) => HomePage(api: api),
             );
           case '/login':
-            final role = settings.arguments == 'Tenant' ? 'Tenant' : 'Landlord';
-            return MaterialPageRoute<void>(
+            final arguments = settings.arguments;
+            final loginArgs = arguments is LoginRouteArgs
+                ? arguments
+                : LoginRouteArgs(
+                    role: arguments == 'Tenant' ? 'Tenant' : 'Landlord',
+                  );
+            return MaterialPageRoute<AuthSession>(
               settings: settings,
-              builder: (_) => Login(initialRole: role),
+              builder: (_) => Login(
+                initialRole: loginArgs.role,
+                returnToPreviousRoute: loginArgs.returnToPreviousRoute,
+                api: api,
+              ),
             );
           case '/listings':
             final arguments = settings.arguments;
@@ -102,6 +112,13 @@ class MyApp extends StatelessWidget {
             return MaterialPageRoute<void>(
               settings: settings,
               builder: (_) => ListingsPage(initialFilters: filters, api: api),
+            );
+          case '/unit-details':
+            final unitId = settings.arguments;
+            if (unitId is! int || unitId <= 0) return null;
+            return MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => UnitDetailsPage(unitId: unitId, api: api),
             );
         }
         return null;

@@ -4,10 +4,75 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/main.dart';
 import 'package:tante/services/tante_api.dart';
 
 void main() {
+  test('tenant details API parses the backend object response', () async {
+    late Uri requestUri;
+    late String authorization;
+    final api = TanteApi(
+      client: MockClient((request) async {
+        requestUri = request.url;
+        authorization = request.headers['Authorization'] ?? '';
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'id': 12,
+              'userId': 42,
+              'firstName': 'Jordan',
+              'lastName': 'Smith',
+              'email': 'jordan@example.com',
+              'phoneNumber': '+255712345678',
+            },
+          }),
+          200,
+        );
+      }),
+    );
+
+    final tenant = await api.getTenantDetails(42, 'test-token');
+
+    expect(requestUri.path, '/rent-manager/v1/tenants');
+    expect(requestUri.queryParameters['userId'], '42');
+    expect(authorization, startsWith('Bearer '));
+    expect(tenant['id'], 12);
+    expect(tenant['firstName'], 'Jordan');
+  });
+
+  test('rental profile API loads listing agency details', () async {
+    late Uri requestUri;
+    late String authorization;
+    final api = TanteApi(
+      client: MockClient((request) async {
+        requestUri = request.url;
+        authorization = request.headers['Authorization'] ?? '';
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'id': 7,
+              'name': 'Tante Rentals',
+              'phoneNumber': '+255712345678',
+              'email': 'rentals@example.com',
+              'viewingServiceFee': 15000,
+              'type': 'BUSINESS',
+            },
+          }),
+          200,
+        );
+      }),
+    );
+
+    final profile = await api.getRentalProfileDetails(7, 'test-token');
+
+    expect(requestUri.path, '/rent-manager/v1/rentalprofiles/7');
+    expect(authorization, startsWith('Bearer '));
+    expect(profile['name'], 'Tante Rentals');
+  });
+
   test(
     'listed-units API includes selected filters and parses the result',
     () async {
@@ -48,7 +113,7 @@ void main() {
 
       final page = await api.getListedUnits(
         page: 0,
-        city: 'Dar es Salaam',
+        location: 'Mlimani',
         type: 'FLAT',
         minBedrooms: 2,
         minRent: '500000',
@@ -59,7 +124,8 @@ void main() {
       expect(requestUri.host, 'localhost');
       expect(requestUri.port, 8082);
       expect(requestUri.path, '/property-manager/v1/units');
-      expect(requestUri.queryParameters['city'], 'Dar es Salaam');
+      expect(requestUri.queryParameters['location'], 'Mlimani');
+      expect(requestUri.queryParameters.containsKey('city'), isFalse);
       expect(requestUri.queryParameters['type'], 'FLAT');
       expect(requestUri.queryParameters['minBedrooms'], '2');
       expect(requestUri.queryParameters['minRent'], '500000');
@@ -70,6 +136,64 @@ void main() {
       expect(page.items.single.rentAmount, 850000);
     },
   );
+
+  test('unit-details API parses the property manager response', () async {
+    late Uri requestUri;
+    final api = TanteApi(
+      client: MockClient((request) async {
+        requestUri = request.url;
+        return http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {
+              'id': 42,
+              'unitNumber': 'A2',
+              'rentalProfileId': 7,
+              'numberOfBedrooms': 2,
+              'numberOfBathrooms': 1,
+              'numberParkingSpots': 1,
+              'rentAmount': 850000,
+              'type': 'FLAT',
+              'status': 'AVAILABLE',
+              'roomSize': 90,
+              'sizeUnit': 'SQM',
+              'floorNumber': 2,
+              'building': {
+                'name': 'Block A',
+                'number': 1,
+                'property': {
+                  'name': 'Green Court',
+                  'description': 'A bright apartment.',
+                  'location': {
+                    'address': {
+                      'streetName': 'Mlimani Road',
+                      'ward': 'Mlimani',
+                      'city': 'Dar es Salaam',
+                      'region': 'Dar es Salaam',
+                      'country': 'Tanzania',
+                    },
+                  },
+                },
+              },
+              'images': [
+                {'id': 3, 'url': 'https://example.com/unit.jpg'},
+              ],
+            },
+          }),
+          200,
+        );
+      }),
+    );
+
+    final unit = await api.getUnitDetails(42);
+
+    expect(requestUri.path, '/property-manager/v1/units/42');
+    expect(unit.propertyName, 'Green Court');
+    expect(unit.buildingName, 'Block A');
+    expect(unit.address, contains('Mlimani'));
+    expect(unit.images.single.url, 'https://example.com/unit.jpg');
+    expect(unit.rentAmount, 850000);
+  });
 
   testWidgets(
     'landing page offers property search and renter/landlord sign-in',
@@ -98,6 +222,18 @@ void main() {
     expect(tester.getTopLeft(find.text('Quick search')).dy, lessThan(100));
   });
 
+  testWidgets('quick search only offers location and unit type', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MyApp());
+    await tester.ensureVisible(find.text('Quick search'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Location'), findsOneWidget);
+    expect(find.text('Unit type'), findsOneWidget);
+    expect(find.text('Budget'), findsNothing);
+  });
+
   testWidgets('tenant sign-in opens the tenant login form', (tester) async {
     await tester.pumpWidget(const MyApp());
 
@@ -106,6 +242,45 @@ void main() {
 
     expect(find.text('Welcome to Tante'), findsOneWidget);
     expect(find.text('Log in as Tenant'), findsOneWidget);
+  });
+
+  testWidgets('tenant home finishes loading the backend tenant profile', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TenantHomePage(
+          session: const AuthSession(
+            phoneNumber: '+255712345678',
+            token: 'test-token',
+            userId: 42,
+            role: 'Tenant',
+          ),
+          api: _FakeTanteApi(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome home, Jordan'), findsOneWidget);
+    expect(find.text('No active lease found'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('main-page sign-in continues to tenant home', (tester) async {
+    await tester.pumpWidget(MyApp(api: _FakeTanteApi()));
+
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.bySemanticsLabel('Tanzanian phone number'),
+      '+255712345678',
+    );
+    await tester.enterText(find.bySemanticsLabel('Password'), 'password');
+    await tester.tap(find.text('Log in as Tenant'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome home, Jordan'), findsOneWidget);
   });
 
   testWidgets('landlord and agent sign-in opens the landlord login form', (
@@ -134,6 +309,64 @@ void main() {
     expect(find.text('Homes for rent'), findsOneWidget);
     expect(find.text('1 place to explore'), findsOneWidget);
   });
+
+  testWidgets('listing details opens the unit details page', (tester) async {
+    await tester.pumpWidget(MyApp(api: _FakeTanteApi()));
+
+    await tester.ensureVisible(find.text('Search homes'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Search homes'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 place to explore'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Green Court | Unit A2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Green Court | Unit A2'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Home details'), findsOneWidget);
+    expect(find.text('Green Court | Unit A2'), findsOneWidget);
+    expect(find.text('Unit details'), findsOneWidget);
+    expect(find.text('TSh 850,000 / month'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(find.text('Agency'), findsOneWidget);
+  });
+
+  testWidgets('listing sign-in returns to details and loads agency profile', (
+    tester,
+  ) async {
+    await tester.pumpWidget(MyApp(api: _FakeTanteApi()));
+
+    await tester.ensureVisible(find.text('Search homes'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Search homes'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Green Court | Unit A2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Green Court | Unit A2'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Sign in'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Log in as Tenant'), findsOneWidget);
+    await tester.enterText(
+      find.bySemanticsLabel('Tanzanian phone number'),
+      '+255712345678',
+    );
+    await tester.enterText(find.bySemanticsLabel('Password'), 'password');
+    await tester.tap(find.text('Log in as Tenant'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Home details'), findsOneWidget);
+    expect(find.text('Tante Rentals'), findsOneWidget);
+    expect(find.text('TSh 15,000'), findsOneWidget);
+  });
 }
 
 class _FakeTanteApi extends TanteApi {
@@ -148,12 +381,105 @@ class _FakeTanteApi extends TanteApi {
   @override
   Future<RentalListingsPage> getListedUnits({
     required int page,
-    required String city,
+    required String location,
     required String type,
     required int minBedrooms,
     required String minRent,
     required String maxRent,
   }) async {
-    return const RentalListingsPage(items: [], totalElements: 1);
+    return const RentalListingsPage(
+      items: [
+        RentalListing(
+          id: 42,
+          unitNumber: 'A2',
+          bedrooms: 2,
+          bathrooms: 1,
+          rentAmount: 850000,
+          type: 'FLAT',
+          status: 'AVAILABLE',
+          propertyName: 'Green Court',
+          streetName: 'Mlimani Road',
+          city: 'Dar es Salaam',
+          region: 'Dar es Salaam',
+        ),
+      ],
+      totalElements: 1,
+    );
+  }
+
+  @override
+  Future<RentalUnitDetails> getUnitDetails(int unitId) async {
+    return const RentalUnitDetails(
+      id: 42,
+      unitNumber: 'A2',
+      rentalProfileId: 7,
+      bedrooms: 2,
+      bathrooms: 1,
+      parkingSpaces: 1,
+      rentAmount: 850000,
+      type: 'FLAT',
+      status: 'AVAILABLE',
+      roomSize: 90,
+      sizeUnit: 'SQM',
+      floorNumber: 2,
+      buildingNumber: 1,
+      buildingName: 'Block A',
+      propertyName: 'Green Court',
+      propertyDescription: 'A bright apartment.',
+      address: ['Mlimani Road', 'Mlimani', 'Dar es Salaam'],
+      images: [],
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>> getTenantDetails(
+    int userId,
+    String token,
+  ) async {
+    return {
+      'id': 12,
+      'userId': userId,
+      'firstName': 'Jordan',
+      'lastName': 'Smith',
+      'email': 'jordan@example.com',
+      'phoneNumber': '+255712345678',
+    };
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getTenantLeases(
+    int tenantId,
+    String token,
+  ) async {
+    return const [];
+  }
+
+  @override
+  Future<AuthSession> signIn({
+    required String phoneNumber,
+    required String password,
+    required String role,
+  }) async {
+    return AuthSession(
+      phoneNumber: phoneNumber,
+      token: 'test-token',
+      userId: 42,
+      role: role,
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>> getRentalProfileDetails(
+    int rentalProfileId,
+    String token,
+  ) async {
+    return {
+      'id': rentalProfileId,
+      'name': 'Tante Rentals',
+      'phoneNumber': '+255712345678',
+      'email': 'rentals@example.com',
+      'viewingServiceFee': 15000,
+      'type': 'BUSINESS',
+    };
   }
 }

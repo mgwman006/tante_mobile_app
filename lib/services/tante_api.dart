@@ -95,13 +95,117 @@ class RentalListingsPage {
   final int totalElements;
 }
 
+class RentalUnitImage {
+  const RentalUnitImage({required this.id, required this.url});
+
+  final int id;
+  final String url;
+
+  factory RentalUnitImage.fromJson(Map<String, dynamic> json) {
+    return RentalUnitImage(
+      id: _requiredInt(json, 'id'),
+      url: _requiredString(json, 'url'),
+    );
+  }
+}
+
+class RentalUnitDetails {
+  const RentalUnitDetails({
+    required this.id,
+    required this.unitNumber,
+    required this.rentalProfileId,
+    required this.bedrooms,
+    required this.bathrooms,
+    required this.parkingSpaces,
+    required this.rentAmount,
+    required this.type,
+    required this.status,
+    required this.roomSize,
+    required this.sizeUnit,
+    required this.floorNumber,
+    required this.buildingNumber,
+    required this.buildingName,
+    required this.propertyName,
+    required this.propertyDescription,
+    required this.address,
+    required this.images,
+  });
+
+  final int id;
+  final String unitNumber;
+  final int rentalProfileId;
+  final int bedrooms;
+  final int bathrooms;
+  final int parkingSpaces;
+  final double rentAmount;
+  final String type;
+  final String? status;
+  final num? roomSize;
+  final String? sizeUnit;
+  final int floorNumber;
+  final int buildingNumber;
+  final String buildingName;
+  final String propertyName;
+  final String? propertyDescription;
+  final List<String> address;
+  final List<RentalUnitImage> images;
+
+  factory RentalUnitDetails.fromJson(Map<String, dynamic> json) {
+    final building = _requiredMap(json, 'building');
+    final property = _requiredMap(building, 'property');
+    final location = _requiredMap(property, 'location');
+    final address = _requiredMap(location, 'address');
+    final imageValues = json['images'];
+    if (imageValues != null && imageValues is! List) {
+      throw const TanteApiException(
+        'The property service returned invalid unit images.',
+      );
+    }
+
+    return RentalUnitDetails(
+      id: _requiredInt(json, 'id'),
+      unitNumber: _requiredString(json, 'unitNumber'),
+      rentalProfileId: _requiredInt(json, 'rentalProfileId'),
+      bedrooms: _requiredInt(json, 'numberOfBedrooms'),
+      bathrooms: _requiredInt(json, 'numberOfBathrooms'),
+      parkingSpaces: _requiredInt(json, 'numberParkingSpots'),
+      rentAmount: _requiredDouble(json, 'rentAmount'),
+      type: _requiredString(json, 'type'),
+      status: json['status']?.toString(),
+      roomSize: json['roomSize'] is num ? json['roomSize'] as num : null,
+      sizeUnit: json['sizeUnit']?.toString(),
+      floorNumber: _requiredInt(json, 'floorNumber'),
+      buildingNumber: _requiredInt(building, 'number'),
+      buildingName: building['name']?.toString() ?? '',
+      propertyName: _requiredString(property, 'name'),
+      propertyDescription: property['description']?.toString(),
+      address: [
+        address['houseNumber']?.toString(),
+        address['streetName']?.toString(),
+        address['ward']?.toString(),
+        address['city']?.toString(),
+        address['region']?.toString(),
+        address['country']?.toString(),
+      ].whereType<String>().where((part) => part.trim().isNotEmpty).toList(),
+      images: (imageValues as List? ?? const []).map((image) {
+        if (image is! Map) {
+          throw const TanteApiException(
+            'The property service returned an invalid unit image.',
+          );
+        }
+        return RentalUnitImage.fromJson(Map<String, dynamic>.from(image));
+      }).toList(),
+    );
+  }
+}
+
 class TanteApi {
   TanteApi({http.Client? client}) : _client = client ?? http.Client();
   final http.Client _client;
 
   Future<RentalListingsPage> getListedUnits({
     required int page,
-    required String city,
+    required String location,
     required String type,
     required int minBedrooms,
     required String minRent,
@@ -114,7 +218,7 @@ class TanteApi {
       'direction': 'asc',
       'isListed': 'true',
       'status': 'AVAILABLE',
-      if (city.trim().isNotEmpty) 'city': city.trim(),
+      if (location.trim().isNotEmpty) 'location': location.trim(),
       if (type.isNotEmpty) 'type': type,
       if (minBedrooms > 0) 'minBedrooms': '$minBedrooms',
       if (minRent.isNotEmpty) 'minRent': minRent,
@@ -146,6 +250,19 @@ class TanteApi {
         'totalElements',
       ),
     );
+  }
+
+  Future<RentalUnitDetails> getUnitDetails(int unitId) async {
+    final result = await _request(
+      'GET',
+      '$propertyApiBaseUrl/v1/units/$unitId',
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The property service returned an invalid unit response.',
+      );
+    }
+    return RentalUnitDetails.fromJson(Map<String, dynamic>.from(result));
   }
 
   Future<AuthSession> signIn({
@@ -218,6 +335,23 @@ class TanteApi {
     return profilesById.values.toList();
   }
 
+  Future<Map<String, dynamic>> getRentalProfileDetails(
+    int rentalProfileId,
+    String token,
+  ) async {
+    final result = await _request(
+      'GET',
+      '$rentApiBaseUrl/v1/rentalprofiles/$rentalProfileId',
+      token: token,
+    );
+    if (result is! Map) {
+      throw const TanteApiException(
+        'The rent service returned an invalid agency profile.',
+      );
+    }
+    return Map<String, dynamic>.from(result);
+  }
+
   Future<Map<String, dynamic>> createRentalProfile({
     required AuthSession session,
     required String name,
@@ -278,7 +412,13 @@ class TanteApi {
       '$rentApiBaseUrl/v1/tenants?userId=$userId',
       token: token,
     );
-    return _maps(result).first;
+    if (result is Map) return Map<String, dynamic>.from(result);
+    if (result is List && result.isNotEmpty && result.first is Map) {
+      return Map<String, dynamic>.from(result.first as Map);
+    }
+    throw const TanteApiException(
+      'The rent service returned an invalid tenant profile.',
+    );
   }
 
   Future<List<Map<String, dynamic>>> getTenantLeases(
@@ -412,4 +552,12 @@ String _requiredString(Map<String, dynamic> json, String key) {
     );
   }
   return value;
+}
+
+Map<String, dynamic> _requiredMap(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value is! Map) {
+    throw TanteApiException('The property service returned an invalid $key.');
+  }
+  return Map<String, dynamic>.from(value);
 }
