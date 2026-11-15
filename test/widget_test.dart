@@ -4,11 +4,47 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:tante/features/landlord/pages/landlord_properties_page.dart';
 import 'package:tante/features/tenant/tenant_home.dart';
 import 'package:tante/main.dart';
 import 'package:tante/services/tante_api.dart';
 
 void main() {
+  testWidgets('landlord properties displays structured property addresses', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: LandlordPropertiesPage(
+          properties: [
+            {
+              'name': 'Green Court',
+              'type': 'RESIDENTIAL',
+              'location': {
+                'address': {
+                  'houseNumber': 14,
+                  'streetName': 'Mlimani Road',
+                  'ward': 'Mlimani',
+                  'city': 'Dar es Salaam',
+                  'region': 'Dar es Salaam',
+                  'country': 'Tanzania',
+                },
+              },
+              'buildings': [],
+            },
+          ],
+        ),
+      ),
+    );
+
+    expect(
+      find.text(
+        '14, Mlimani Road, Mlimani, Dar es Salaam, Dar es Salaam, Tanzania\nRESIDENTIAL · 0 buildings',
+      ),
+      findsOneWidget,
+    );
+  });
+
   test('tenant details API parses the backend object response', () async {
     late Uri requestUri;
     late String authorization;
